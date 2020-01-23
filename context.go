@@ -154,3 +154,25 @@ func (ctx *Context) Bool(name string) (bool, bool) {
 	}
 	return ret, isSet
 }
+
+// Int gets the value of the flag with the given name and returns whether the
+// flag is set
+func (ctx *Context) Float(name string) (float64, bool) {
+	var ret float64 = 0
+	var isSet bool = false
+
+	for c := ctx; c != nil; c = c.parent {
+		if flag, ok := c.scopeFlags[name]; ok {
+			if value, ok := flag.GetValue().(float64); ok {
+				ret = value
+			} else {
+				break
+			}
+			if _, ok := c.parsedFlags[name]; ok {
+				isSet = true
+				break
+			}
+		}
+	}
+	return ret, isSet
+}

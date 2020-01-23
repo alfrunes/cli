@@ -163,14 +163,12 @@ func (f *IntFlag) Validate() error {
 	if f.Name == "" {
 		return fmt.Errorf("IntFlag is missing name")
 	}
-	if f.Value < f.Range[0] {
-		return fmt.Errorf("illegal value for integer flag %s: %d < %d",
-			f.Name, f.Value, f.Range[0])
-	} else if f.Value > f.Range[1] {
-		return fmt.Errorf("illegal value for integer flag %s: %d > %d",
-			f.Name, f.Value, f.Range[1])
+	if f.Range[0] != f.Range[1] {
+		if f.Value < f.Range[0] {
+			return fmt.Errorf("illegal value for integer flag %s: %d > %d",
+				f.Name, f.Value, f.Range[1])
+		}
 	}
-
 	return nil
 }
 
@@ -179,6 +177,95 @@ func (f *IntFlag) setEnv() {
 		envVar := os.Getenv(f.EnvVar)
 		if envVar != "" {
 			if envVal, err := strconv.Atoi(envVar); err == nil {
+				f.Value = envVal
+			}
+		}
+	}
+}
+
+type FloatFlag struct {
+	// Name of the flag, for a given Name the command-line option
+	// becomes --Name.
+	Name string
+	// Char is an optional single-char alternative
+	Char rune
+	// Initialize default value from environment variable. If the value of
+	// the flag is not an integer, the value falls back to the default.
+	EnvVar string
+	// Required makes the flag required.
+	Required bool
+	// Usage is printed to the help screen - short summary of function.
+	Usage string
+	// Value holds the default (integer) value of the flag (defaults to 0).
+	Value float64
+	// Range restricts the range of the flag to the selected values.
+	Range [2]float64
+}
+
+func (f *FloatFlag) GetValue() interface{} {
+	return interface{}(f.Value)
+}
+
+func (f *FloatFlag) GetName() string {
+	return f.Name
+}
+
+func (f *FloatFlag) getProperties() *flagProperties {
+	return &flagProperties{
+		Name:     f.Name,
+		Char:     f.Char,
+		Required: f.Required,
+	}
+}
+
+func (f *FloatFlag) Set(value string) error {
+	var err error
+	f.Value, err = strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fmt.Errorf("invalid value for integer flag %s: %s",
+			f.Name, value)
+	}
+	return f.Validate()
+}
+
+func (f *FloatFlag) String() string {
+	var hasRange bool = false
+	usage := f.Usage
+	if f.Range[0] != f.Range[1] {
+		usage += fmt.Sprintf(" {%.2f-%.2f}", f.Range[0], f.Range[1])
+
+	}
+	if f.Value != 0 || hasRange {
+		usage += fmt.Sprintf(" [%.2f]", f.Value)
+	}
+	return f.Usage
+}
+
+func (f *FloatFlag) Validate() error {
+	if f.Name == "" {
+		return fmt.Errorf("FloatFlag is missing name")
+	}
+	if f.Range[0] != f.Range[1] {
+		if f.Value < f.Range[0] {
+			return fmt.Errorf(
+				"illegal value for float flag %s: %f < %f",
+				f.Name, f.Value, f.Range[0])
+		} else if f.Value > f.Range[1] {
+			return fmt.Errorf(
+				"illegal value for integer flag %s: %f > %f",
+				f.Name, f.Value, f.Range[1])
+		}
+	}
+
+	return nil
+}
+
+func (f *FloatFlag) setEnv() {
+	if f.EnvVar != "" {
+		envVar := os.Getenv(f.EnvVar)
+		if envVar != "" {
+			if envVal, err := strconv.
+				ParseFloat(envVar, 64); err == nil {
 				f.Value = envVal
 			}
 		}
