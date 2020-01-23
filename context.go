@@ -64,7 +64,7 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		if flag == nil {
 			return nil, fmt.Errorf("NewContext nil flag detected!")
 		}
-		props := flag.GetProperties()
+		props := flag.getProperties()
 		ctx.scopeFlags[props.Name] = flag
 		if props.Required {
 			app.requiredFlags[props.Name] = flag
@@ -72,6 +72,7 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		if props.Char != rune(0) {
 			ctx.scopeFlags[string(props.Char)] = flag
 		}
+		flag.setEnv()
 	}
 
 	return ctx, nil
@@ -100,9 +101,6 @@ func (ctx *Context) String(name string) (string, bool) {
 				ret = value
 			} else {
 				break
-			}
-			for k, v := range c.parsedFlags {
-				fmt.Printf("%s: %s\n", k, v)
 			}
 			if _, ok := c.parsedFlags[name]; ok {
 				isSet = true

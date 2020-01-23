@@ -93,7 +93,7 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 					return nil, err
 				}
 			}
-			ctx.parsedFlags[lastFlag.GetProperties().Name] = lastFlag
+			ctx.parsedFlags[lastFlag.GetName()] = lastFlag
 			lastFlag = nil
 			continue
 		}
@@ -108,7 +108,6 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 				bf.Value = true
 			}
 			lastFlag = ret.(Flag)
-			fmt.Println("Flag!")
 
 		case *Command:
 			cmd := ret.(*Command)
@@ -132,7 +131,7 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 	case *StringFlag, *IntFlag:
 		return nil, fmt.Errorf(
 			"The following flag is missing a value: %s",
-			lastFlag.GetProperties().Name)
+			lastFlag.GetName())
 	}
 
 	return ctx, nil
@@ -165,7 +164,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 			ret = flagAddr
 		}
 		delete(ctx.app.requiredFlags,
-			flagAddr.GetProperties().Name)
+			flagAddr.GetName())
 		return ret, nil
 
 	} else if strings.HasPrefix(arg, "-") {
@@ -191,7 +190,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 						"expression '%s'",
 					char, arg)
 			}
-			flagName := flag.GetProperties().Name
+			flagName := flag.GetName()
 			delete(ctx.app.requiredFlags, flagName)
 			if _, ok := ctx.parsedFlags[flagName]; ok {
 				return nil, fmt.Errorf(
@@ -203,7 +202,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 		// Last flag of a compound expression can be whatever
 		char := rawFlags[len(rawFlags)-1]
 		if flag, ok := ctx.scopeFlags[char]; ok {
-			flagName := flag.GetProperties().Name
+			flagName := flag.GetName()
 			if _, ok := ctx.parsedFlags[flagName]; ok {
 				return nil, fmt.Errorf(
 					"flag provided more than once: " +

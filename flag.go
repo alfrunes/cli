@@ -12,15 +12,16 @@ type Flag interface {
 	GetValue() interface{}
 	Validate() error
 	Set(string) error
-	GetProperties() flagProperties
+	GetName() string
+
+	getProperties() *flagProperties
+	setEnv()
 }
 
 type flagProperties struct {
 	Name     string
 	Char     rune
-	EnvVar   string
 	Required bool
-	IsSet    bool
 }
 
 type StringFlag struct {
@@ -29,7 +30,8 @@ type StringFlag struct {
 	Name string
 	// Char is an optional single-char alternative
 	Char rune
-	// Initialize default value from environment variable.
+	// Initialize default value from an environment variable the variable
+	// is non-empty.
 	EnvVar string
 	// Required makes the flag required.
 	Required bool
@@ -39,8 +41,6 @@ type StringFlag struct {
 	Value string
 	// Choices restricts the Values this flag can take to this set.
 	Choices []string
-
-	isInitialized bool
 }
 
 func (f *StringFlag) Set(value string) error {
@@ -59,13 +59,8 @@ func (f *StringFlag) String() string {
 	return f.Usage
 }
 
-func (f *StringFlag) GetProperties() flagProperties {
-	return flagProperties{
-		Name:     f.Name,
-		Char:     f.Char,
-		EnvVar:   f.EnvVar,
-		Required: f.Required,
-	}
+func (f *StringFlag) GetName() string {
+	return f.Name
 }
 
 func (f *StringFlag) GetValue() interface{} {
@@ -75,13 +70,6 @@ func (f *StringFlag) GetValue() interface{} {
 func (f *StringFlag) Validate() error {
 	if f.Name == "" {
 		return fmt.Errorf("StringFlag is missing name")
-	}
-	if !f.isInitialized && f.EnvVar != "" {
-		env := os.Getenv(f.EnvVar)
-		if env != "" {
-			f.Value = env
-		}
-		f.isInitialized = true
 	}
 	if len(f.Choices) != 0 {
 		for _, v := range f.Choices {
@@ -96,13 +84,31 @@ func (f *StringFlag) Validate() error {
 	return nil
 }
 
+func (f *StringFlag) setEnv() {
+	if f.EnvVar != "" {
+		envVar := os.Getenv(f.EnvVar)
+		if envVar != "" {
+			f.Value = envVar
+		}
+	}
+}
+
+func (f *StringFlag) getProperties() *flagProperties {
+	return &flagProperties{
+		Name:     f.Name,
+		Char:     f.Char,
+		Required: f.Required,
+	}
+}
+
 type IntFlag struct {
 	// Name of the flag, for a given Name the command-line option
 	// becomes --Name.
 	Name string
 	// Char is an optional single-char alternative
 	Char rune
-	// Initialize default value from environment variable.
+	// Initialize default value from environment variable. If the value of
+	// the flag is not an integer, the value falls back to the default.
 	EnvVar string
 	// Required makes the flag required.
 	Required bool
@@ -118,11 +124,14 @@ func (f *IntFlag) GetValue() interface{} {
 	return interface{}(f.Value)
 }
 
-func (f *IntFlag) GetProperties() flagProperties {
-	return flagProperties{
+func (f *IntFlag) GetName() string {
+	return f.Name
+}
+
+func (f *IntFlag) getProperties() *flagProperties {
+	return &flagProperties{
 		Name:     f.Name,
 		Char:     f.Char,
-		EnvVar:   f.EnvVar,
 		Required: f.Required,
 	}
 }
@@ -165,13 +174,25 @@ func (f *IntFlag) Validate() error {
 	return nil
 }
 
+func (f *IntFlag) setEnv() {
+	if f.EnvVar != "" {
+		envVar := os.Getenv(f.EnvVar)
+		if envVar != "" {
+			if envVal, err := strconv.Atoi(envVar); err == nil {
+				f.Value = envVal
+			}
+		}
+	}
+}
+
 type BoolFlag struct {
 	// Name of the flag, for a given Name the command-line option
 	// becomes --Name.
 	Name string
-	// Char is an optional single-char alternative
+	// Char is an optional single-char alternative.
 	Char rune
-	// Initialize default value from environment variable.
+	// Initialize default value from environment variable. For boolean flags
+	// the value toggles if the environment variable is non-empty.
 	EnvVar string
 	// Required makes the flag required.
 	Required bool
@@ -183,13 +204,8 @@ type BoolFlag struct {
 	PrintDefault bool
 }
 
-func (f *BoolFlag) GetProperties() flagProperties {
-	return flagProperties{
-		Name:     f.Name,
-		Char:     f.Char,
-		EnvVar:   f.EnvVar,
-		Required: f.Required,
-	}
+func (f *BoolFlag) GetName() string {
+	return f.Name
 }
 
 func (f *BoolFlag) GetValue() interface{} {
@@ -220,4 +236,21 @@ func (f *BoolFlag) Validate() error {
 		return fmt.Errorf("BoolFlag is missing name")
 	}
 	return nil
+}
+
+func (f *BoolFlag) setEnv() {
+	if f.EnvVar != "" {
+		envVar := os.Getenv(f.EnvVar)
+		if envVar != "" {
+			f.Value = !f.Value
+		}
+	}
+}
+
+func (f *BoolFlag) getProperties() *flagProperties {
+	return &flagProperties{
+		Name:     f.Name,
+		Char:     f.Char,
+		Required: f.Required,
+	}
 }
