@@ -1,6 +1,9 @@
 package cli
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Context struct {
 	app     *App
@@ -10,20 +13,20 @@ type Context struct {
 	parent *Context
 
 	positionalArgs []string
-	parsedFlags    map[string]Flag
-	scopeFlags     map[string]Flag
+	parsedFlags    map[string]*Flag
+	scopeFlags     map[string]*Flag
 	scopeCommands  map[string]*Command
 }
 
 func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
-	var flags []Flag
+	var flags []*Flag
 	ctx := &Context{
 		app:     app,
 		command: cmd,
 		parent:  parent,
 
-		parsedFlags:   make(map[string]Flag),
-		scopeFlags:    make(map[string]Flag),
+		parsedFlags:   make(map[string]*Flag),
+		scopeFlags:    make(map[string]*Flag),
 		scopeCommands: make(map[string]*Command),
 	}
 
@@ -64,13 +67,12 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		if flag == nil {
 			return nil, fmt.Errorf("NewContext nil flag detected!")
 		}
-		props := flag.getProperties()
-		ctx.scopeFlags[props.Name] = flag
-		if props.Required {
-			app.requiredFlags[props.Name] = flag
+		ctx.scopeFlags[flag.Name] = flag
+		if flag.Required {
+			app.requiredFlags[flag.Name] = flag
 		}
-		if props.Char != rune(0) {
-			ctx.scopeFlags[string(props.Char)] = flag
+		if flag.Char != rune(0) {
+			ctx.scopeFlags[string(flag.Char)] = flag
 		}
 		flag.setEnv()
 	}
@@ -97,7 +99,7 @@ func (ctx *Context) String(name string) (string, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.GetValue().(string); ok {
+			if value, ok := flag.Value.(string); ok {
 				ret = value
 			} else {
 				break
@@ -119,7 +121,7 @@ func (ctx *Context) Int(name string) (int, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.GetValue().(int); ok {
+			if value, ok := flag.Value.(int); ok {
 				ret = value
 			} else {
 				break
@@ -141,7 +143,7 @@ func (ctx *Context) Bool(name string) (bool, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.GetValue().(bool); ok {
+			if value, ok := flag.Value.(bool); ok {
 				ret = value
 			} else {
 				break
@@ -163,7 +165,7 @@ func (ctx *Context) Float(name string) (float64, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.GetValue().(float64); ok {
+			if value, ok := flag.Value.(float64); ok {
 				ret = value
 			} else {
 				break
@@ -175,4 +177,58 @@ func (ctx *Context) Float(name string) (float64, bool) {
 		}
 	}
 	return ret, isSet
+}
+
+func (ctx *Context) assignFlag(arg string, flag *Flag) (bool, error) {
+	// Ignore this check for bool and string flags
+	// -- boolean flags default to true
+	// -- string flags treat the next argument as a regardless string
+	if flag.Type != Bool && flag.Type != String {
+		// Check that the value is not a flag or command
+		var argAsFlag string
+		if len(arg) == 2 {
+			argAsFlag = strings.TrimPrefix(arg, "-")
+		} else {
+			argAsFlag = strings.TrimPrefix(arg, "--")
+		}
+		_, isFlag := ctx.scopeFlags[argAsFlag]
+		if isFlag {
+			return false, fmt.Errorf(
+				"error parsing arguments: "+
+					"expected value of type %s, "+
+					"found flag: %s",
+				flag.Type, arg)
+		}
+		_, isCommand := ctx.scopeCommands[arg]
+		if isCommand {
+			return false, fmt.Errorf(
+				"error parsing arguments: "+
+					"expected value of type %s, "+
+					"found command: %s",
+				flag.Type, arg)
+		}
+	}
+	if err := flag.Set(arg); err != nil {
+		if flag.Type == Bool {
+			flag.Set("true")
+			return false, nil
+		} else {
+			return false, err
+		}
+	}
+	ctx.parsedFlags[flag.Name] = flag
+	return true, nil
+}
+
+// Free releases all internal lookup maps for the garbage collector after free
+// is called this context can't be used.
+func (ctx *Context) Free() {
+	var p *Context
+	p.app.requiredFlags = nil
+	for p = ctx; p != nil; p = p.parent {
+		p.parsedFlags = nil
+		p.positionalArgs = nil
+		p.scopeCommands = nil
+		p.scopeFlags = nil
+	}
 }

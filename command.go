@@ -15,7 +15,7 @@ type Command struct {
 	Usage string
 
 	// Flags that the command accepts.
-	Flags []Flag
+	Flags []*Flag
 	// InheritParentFlags toggles whether the flags of the parent command (or
 	// app) is accessible at the command's scope.
 	InheritParentFlags bool

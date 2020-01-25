@@ -2,8 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
+
+// internalError is a private error type which is caused by illegal usage of
+// the flag package, for example assigning wrong default value type to a flag.
+type internalError error
 
 type App struct {
 	Name        string
@@ -13,21 +18,22 @@ type App struct {
 	Description string
 
 	Action   func(ctx *Context) error
-	Flags    []Flag
+	Flags    []*Flag
 	Commands []*Command
 
-	requiredFlags map[string]Flag
+	requiredFlags map[string]*Flag
 }
 
 func (a *App) PrintHelp() {
+	PrintAppHelp(a, os.Stderr)
 	return // TODO
 }
 
 func (a *App) Run(args []string) error {
-	a.requiredFlags = make(map[string]Flag)
+	a.requiredFlags = make(map[string]*Flag)
 	ctx, err := a.parseArgs(args)
 	if err != nil {
-		fmt.Println("Error: " + err.Error())
+		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
 		if ctx == nil {
 			a.PrintHelp()
 		} else if ctx.command == nil {
@@ -42,7 +48,6 @@ func (a *App) Run(args []string) error {
 		missingFlags := "[ "
 		for k, _ := range ctx.app.requiredFlags {
 			missingFlags += k + " "
-			delete(ctx.app.requiredFlags, k)
 		}
 		missingFlags += "]"
 		return fmt.Errorf(
@@ -68,7 +73,7 @@ func (a *App) Run(args []string) error {
 // parseArgs parses all passed arguments and on success returns the context
 // of the inner command scope.
 func (app *App) parseArgs(args []string) (*Context, error) {
-	var lastFlag Flag
+	var lastFlag *Flag
 	ctx, err := NewContext(app, nil, nil)
 	if err != nil {
 		return nil, err
@@ -77,25 +82,14 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 	for i, arg := range args {
 		// Flag from last iteration - try to assign arg as value.
 		if lastFlag != nil {
-			if strings.HasPrefix(arg, "-") {
-				break
+			set, err := ctx.assignFlag(arg, lastFlag)
+			if err != nil {
+				return nil, err
 			}
-			switch lastFlag.(type) {
-			case *BoolFlag:
-				// Try to set argument, if error set to true
-				if err := lastFlag.Set(arg); err != nil {
-					lastFlag.Set("true")
-				}
-
-			default:
-				// StringFlag & IntFlag:
-				if err := lastFlag.Set(arg); err != nil {
-					return nil, err
-				}
-			}
-			ctx.parsedFlags[lastFlag.GetName()] = lastFlag
 			lastFlag = nil
-			continue
+			if set {
+				continue
+			}
 		}
 
 		ret, err := parseArg(arg, ctx)
@@ -103,11 +97,11 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 			return nil, err
 		}
 		switch ret.(type) {
-		case Flag:
-			if bf, ok := ret.(*BoolFlag); ok {
-				bf.Value = true
+		case *Flag:
+			lastFlag = ret.(*Flag)
+			if lastFlag.Type == Bool {
+				lastFlag.Value = true
 			}
-			lastFlag = ret.(Flag)
 
 		case *Command:
 			cmd := ret.(*Command)
@@ -127,11 +121,13 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 		}
 	}
 
-	switch lastFlag.(type) {
-	case *StringFlag, *IntFlag:
-		return nil, fmt.Errorf(
-			"The following flag is missing a value: %s",
-			lastFlag.GetName())
+	if lastFlag != nil {
+		switch lastFlag.Type {
+		case String, Int, Float:
+			return nil, fmt.Errorf(
+				"The following flag is missing a value: %s",
+				lastFlag.Name)
+		}
 	}
 
 	return ctx, nil
@@ -150,6 +146,11 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 		if !ok {
 			return nil, fmt.Errorf("unrecognized flag: %s", arg)
 		}
+		if _, ok := ctx.parsedFlags[flagKeyVal[0]]; ok {
+			return nil, fmt.Errorf(
+				"flag provided more than once: %s",
+				flagKeyVal[0])
+		}
 		switch len(flagKeyVal) {
 		// Flag has the form --flag=value
 		case 2:
@@ -163,8 +164,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 		case 1:
 			ret = flagAddr
 		}
-		delete(ctx.app.requiredFlags,
-			flagAddr.GetName())
+		delete(ctx.app.requiredFlags, flagAddr.Name)
 		return ret, nil
 
 	} else if strings.HasPrefix(arg, "-") {
@@ -175,43 +175,44 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 		}
 		charFlags := strings.TrimPrefix(arg, "-")
 		rawFlags := strings.Split(charFlags, "")
+		nonBools := []string{}
 		for _, char := range rawFlags[:len(rawFlags)-1] {
 			flag, ok := ctx.scopeFlags[char]
 			if !ok {
 				return nil, fmt.Errorf(
 					"unrecognized option: %s", char)
 			}
-			if bf, ok := flag.(*BoolFlag); ok {
-				bf.Value = true
+			if flag.Type == Bool {
+				flag.Value = true
 			} else {
-				return nil, fmt.Errorf(
-					"non-boolean flag '-%s' cannot "+
-						"be used in a compound "+
-						"expression '%s'",
-					char, arg)
+				nonBools = append(nonBools, char)
 			}
-			flagName := flag.GetName()
-			delete(ctx.app.requiredFlags, flagName)
-			if _, ok := ctx.parsedFlags[flagName]; ok {
+			delete(ctx.app.requiredFlags, flag.Name)
+			if _, ok := ctx.parsedFlags[flag.Name]; ok {
 				return nil, fmt.Errorf(
 					"flag provided more than once: " +
-						flagName)
+						flag.Name)
 			}
-			ctx.parsedFlags[flagName] = flag
+			ctx.parsedFlags[flag.Name] = flag
+		}
+		if len(nonBools) > 0 {
+			return nil, fmt.Errorf(
+				"non-boolean flag(s) %v cannot be used in a compound "+
+					"expression '%s'",
+				nonBools, arg)
 		}
 		// Last flag of a compound expression can be whatever
 		char := rawFlags[len(rawFlags)-1]
 		if flag, ok := ctx.scopeFlags[char]; ok {
-			flagName := flag.GetName()
-			if _, ok := ctx.parsedFlags[flagName]; ok {
+			if _, ok := ctx.parsedFlags[flag.Name]; ok {
 				return nil, fmt.Errorf(
 					"flag provided more than once: " +
-						flagName)
+						flag.Name)
 			}
-			delete(ctx.app.requiredFlags, flagName)
-			if bf, ok := flag.(*BoolFlag); ok {
-				bf.Value = true
-				ctx.parsedFlags[bf.Name] = flag
+			delete(ctx.app.requiredFlags, flag.Name)
+			if flag.Type == Bool {
+				flag.Value = true
+				ctx.parsedFlags[flag.Name] = flag
 				return flag, nil
 			}
 			return flag, nil

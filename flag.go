@@ -7,29 +7,126 @@ import (
 	"strings"
 )
 
-type Flag interface {
-	String() string
-	GetValue() interface{}
-	Validate() error
-	Set(string) error
-	GetName() string
+type FlagType uint8
 
-	getProperties() *flagProperties
-	setEnv()
+const (
+	String FlagType = iota
+	Bool
+	Int
+	Float
+
+	Unknown FlagType = 0xFF
+)
+
+func (ft FlagType) Equal(value interface{}) bool {
+	actualType := getFlagType(value)
+	if ft != actualType {
+		return false
+	}
+	return true
 }
 
-type flagProperties struct {
-	Name     string
-	Char     rune
-	Required bool
+func (ft FlagType) CastSlice(slice interface{}) ([]interface{}, bool) {
+	switch ft {
+	case Bool:
+		sb, ok := slice.([]bool)
+		if ok {
+			ret := make([]interface{}, len(sb))
+			for i, e := range sb {
+				ret[i] = e
+			}
+			return ret, true
+		}
+	case Float:
+		sf, ok := slice.([]float64)
+		if ok {
+			ret := make([]interface{}, len(sf))
+			for i, e := range sf {
+				ret[i] = e
+			}
+			return ret, true
+		}
+	case Int:
+		si, ok := slice.([]int)
+		if ok {
+			ret := make([]interface{}, len(si))
+			for i, e := range si {
+				ret[i] = e
+			}
+			return ret, true
+		}
+	case String:
+		ss, ok := slice.([]string)
+		if ok {
+			ret := make([]interface{}, len(ss))
+			for i, e := range ss {
+				ret[i] = e
+			}
+			return ret, true
+		}
+	}
+	return nil, false
 }
 
-type StringFlag struct {
+func (ft FlagType) Nil() interface{} {
+	switch ft {
+	case Bool:
+		return false
+	case Float:
+		return float64(0.0)
+	case Int:
+		return 0
+	case String:
+		return ""
+	default:
+		return nil
+	}
+}
+
+func (ft FlagType) String() string {
+	switch ft {
+	case Bool:
+		return "boolean"
+	case Float:
+		return "float"
+	case Int:
+		return "integer"
+	case String:
+		return "string"
+	default:
+		return "unknown"
+	}
+}
+
+func getFlagType(value interface{}) FlagType {
+	switch value.(type) {
+	case bool:
+		return Bool
+	case float64:
+		return Float
+	case int:
+		return Int
+	case string:
+		return String
+	}
+	return Unknown
+
+}
+
+type Flag struct {
 	// Name of the flag, for a given Name the command-line option
 	// becomes --Name.
 	Name string
 	// Char is an optional single-char alternative
 	Char rune
+	// The meta variable name that will displayed on help.
+	MetaVar string
+	// The type of the flag's value.
+	Type FlagType
+	// Value holds the default (string) value of the flag (defaults to "").
+	Value interface{}
+	// Choices restricts the Values this flag can take to this set.
+	Choices interface{}
 	// Initialize default value from an environment variable the variable
 	// is non-empty.
 	EnvVar string
@@ -37,307 +134,174 @@ type StringFlag struct {
 	Required bool
 	// Usage is printed to the help screen - short summary of function.
 	Usage string
-	// Value holds the default (string) value of the flag (defaults to "").
-	Value string
-	// Choices restricts the Values this flag can take to this set.
-	Choices []string
 }
 
-func (f *StringFlag) Set(value string) error {
-	f.Value = value
+func (f *Flag) Set(value string) error {
+	var err error
+	switch f.Type {
+	case Bool:
+		lowerCase := strings.ToLower(value)
+		if lowerCase == "true" {
+			f.Value = true
+		} else if lowerCase == "false" {
+			f.Value = false
+		} else {
+			// actual error handled below
+			err = fmt.Errorf("")
+		}
+
+	case Float:
+		f.Value, err = strconv.ParseFloat(value, 64)
+	case Int:
+		f.Value, err = strconv.Atoi(value)
+
+	case String:
+		f.Value = value
+	}
+	if err != nil {
+		return fmt.Errorf("invalid value for flag %s (type: %s): %s",
+			f.Name, f.Type, value)
+	}
+
 	return f.Validate()
 }
 
-func (f *StringFlag) String() string {
+func (f *Flag) String() string {
 	usage := f.Usage
-	if len(f.Choices) != 0 {
-		usage += fmt.Sprintf(" {%s}", strings.Join(f.Choices, ", "))
+	if f.Value != nil {
+		usage += " [%s]"
 	}
-	if f.Value != "" {
-		usage += fmt.Sprintf(" [%s]", f.Value)
+	choices, ok := f.Type.CastSlice(f.Choices)
+	if ok && len(choices) > 0 {
+		switch f.Type {
+		case Int, Float:
+			switch len(choices) {
+			case 1:
+				usage += fmt.Sprintf("{0-%v}", choices[0])
+			case 2:
+				usage += fmt.Sprintf(
+					"{%v-%v}",
+					choices[0],
+					choices[1])
+			default:
+				usage += fmt.Sprintf(
+					" {%s}", joinSlice(choices, ", "))
+			}
+		case String:
+			usage += fmt.Sprintf(
+				" {%s}", joinSlice(choices, ", "))
+
+		}
 	}
-	return f.Usage
+	return usage
 }
 
-func (f *StringFlag) GetName() string {
-	return f.Name
-}
-
-func (f *StringFlag) GetValue() interface{} {
-	return interface{}(f.Value)
-}
-
-func (f *StringFlag) Validate() error {
-	if f.Name == "" {
-		return fmt.Errorf("StringFlag is missing name")
-	}
-	if len(f.Choices) != 0 {
-		for _, v := range f.Choices {
-			if f.Value == v {
-				return nil
+func (f *Flag) setEnv() {
+	if f.EnvVar != "" {
+		envVar := os.Getenv(f.EnvVar)
+		if envVar != "" {
+			defaultValue := f.Value
+			err := f.Set(envVar)
+			if err != nil {
+				// Fall back to default value
+				f.Value = defaultValue
 			}
 		}
+	}
+}
+
+func (f *Flag) Validate() error {
+	// Type agnostic validation
+	if err := f.validate(); err != nil {
+		return err
+	}
+	// Type specific validation
+	return f.validateChoices()
+}
+
+// Type agnostic validation
+func (f *Flag) validate() error {
+	// Check if name is present
+	if f.Name == "" {
+		return internalError(fmt.Errorf(
+			"flag of type %s is missing name",
+			f.Type.String()))
+	}
+	if f.Value == nil {
+		// Fill in blank value
+		f.Value = f.Type.Nil()
+	}
+	// Check that type is correct
+	if !f.Type.Equal(f.Value) {
+		return internalError(fmt.Errorf(
+			"flag %s of type %s with illegal value %v (type: %s)",
+			f.Name, f.Type, f.Value, getFlagType(f.Value)))
+	}
+	// Validate choices' type
+	if f.Choices != nil {
+		_, ok := f.Type.CastSlice(f.Choices)
+		fmt.Println(ok)
+		if !ok {
+			return internalError(fmt.Errorf(
+				"illegal type for choices selection (%v) for "+
+					"flag %s with type %s",
+				f.Choices, f.Name, f.Type))
+		}
+	}
+	return nil
+}
+
+func (f *Flag) validateChoices() error {
+	choices, ok := f.Type.CastSlice(f.Choices)
+	if !ok {
+		return nil
+	}
+	if len(choices) <= 0 {
+		return nil
+	}
+	switch f.Type {
+	case Float:
+		switch len(choices) {
+		case 1:
+			choices = append([]interface{}{0.0}, choices[0])
+			fallthrough
+		case 2:
+			if f.Value.(float64) < choices[0].(float64) ||
+				f.Value.(float64) > choices[1].(float64) {
+				return fmt.Errorf(
+					"illegal value for flag %s: "+
+						"%g not in range [%g, %g]",
+					f.Name, f.Value.(float64),
+					choices[0].(float64),
+					choices[1].(float64))
+			}
+			return nil
+		}
+	case Int:
+		switch len(choices) {
+		case 1:
+			choices = append([]interface{}{0}, choices[0])
+			fallthrough
+		case 2:
+			if f.Value.(int) < choices[0].(int) ||
+				f.Value.(int) > choices[1].(int) {
+				return fmt.Errorf(
+					"illegal value for flag %s: "+
+						"%d not in range [%d, %d]",
+					f.Name, f.Value,
+					choices[0].(int),
+					choices[1].(int))
+			}
+			return nil
+		}
+	case Bool:
+		return nil
+	}
+	if !elemInSlice(f.Value, choices) {
 		return fmt.Errorf(
-			"illegal value for string flag '%s': %s not in {%s}",
-			f.Name, f.Value, strings.Join(f.Choices, ", "))
+			"illegal value for flag %s: "+
+				"%v not in {%s}", f.Name,
+			f.Value, joinSlice(choices, ", "))
 	}
 	return nil
-}
-
-func (f *StringFlag) setEnv() {
-	if f.EnvVar != "" {
-		envVar := os.Getenv(f.EnvVar)
-		if envVar != "" {
-			f.Value = envVar
-		}
-	}
-}
-
-func (f *StringFlag) getProperties() *flagProperties {
-	return &flagProperties{
-		Name:     f.Name,
-		Char:     f.Char,
-		Required: f.Required,
-	}
-}
-
-type IntFlag struct {
-	// Name of the flag, for a given Name the command-line option
-	// becomes --Name.
-	Name string
-	// Char is an optional single-char alternative
-	Char rune
-	// Initialize default value from environment variable. If the value of
-	// the flag is not an integer, the value falls back to the default.
-	EnvVar string
-	// Required makes the flag required.
-	Required bool
-	// Usage is printed to the help screen - short summary of function.
-	Usage string
-	// Value holds the default (integer) value of the flag (defaults to 0).
-	Value int
-	// Range restricts the range of the flag to the selected values.
-	Range [2]int
-}
-
-func (f *IntFlag) GetValue() interface{} {
-	return interface{}(f.Value)
-}
-
-func (f *IntFlag) GetName() string {
-	return f.Name
-}
-
-func (f *IntFlag) getProperties() *flagProperties {
-	return &flagProperties{
-		Name:     f.Name,
-		Char:     f.Char,
-		Required: f.Required,
-	}
-}
-
-func (f *IntFlag) Set(value string) error {
-	var err error
-	f.Value, err = strconv.Atoi(value)
-	if err != nil {
-		return fmt.Errorf("invalid value for integer flag %s: %s",
-			f.Name, value)
-	}
-	return f.Validate()
-}
-
-func (f *IntFlag) String() string {
-	var hasRange bool = false
-	usage := f.Usage
-	if f.Range[0] != f.Range[1] {
-		usage += fmt.Sprintf(" {%d-%d}", f.Range[0], f.Range[1])
-
-	}
-	if f.Value != 0 || hasRange {
-		usage += fmt.Sprintf(" [%s]", f.Value)
-	}
-	return f.Usage
-}
-
-func (f *IntFlag) Validate() error {
-	if f.Name == "" {
-		return fmt.Errorf("IntFlag is missing name")
-	}
-	if f.Range[0] != f.Range[1] {
-		if f.Value < f.Range[0] {
-			return fmt.Errorf("illegal value for integer flag %s: %d > %d",
-				f.Name, f.Value, f.Range[1])
-		}
-	}
-	return nil
-}
-
-func (f *IntFlag) setEnv() {
-	if f.EnvVar != "" {
-		envVar := os.Getenv(f.EnvVar)
-		if envVar != "" {
-			if envVal, err := strconv.Atoi(envVar); err == nil {
-				f.Value = envVal
-			}
-		}
-	}
-}
-
-type FloatFlag struct {
-	// Name of the flag, for a given Name the command-line option
-	// becomes --Name.
-	Name string
-	// Char is an optional single-char alternative
-	Char rune
-	// Initialize default value from environment variable. If the value of
-	// the flag is not an integer, the value falls back to the default.
-	EnvVar string
-	// Required makes the flag required.
-	Required bool
-	// Usage is printed to the help screen - short summary of function.
-	Usage string
-	// Value holds the default (integer) value of the flag (defaults to 0).
-	Value float64
-	// Range restricts the range of the flag to the selected values.
-	Range [2]float64
-}
-
-func (f *FloatFlag) GetValue() interface{} {
-	return interface{}(f.Value)
-}
-
-func (f *FloatFlag) GetName() string {
-	return f.Name
-}
-
-func (f *FloatFlag) getProperties() *flagProperties {
-	return &flagProperties{
-		Name:     f.Name,
-		Char:     f.Char,
-		Required: f.Required,
-	}
-}
-
-func (f *FloatFlag) Set(value string) error {
-	var err error
-	f.Value, err = strconv.ParseFloat(value, 64)
-	if err != nil {
-		return fmt.Errorf("invalid value for integer flag %s: %s",
-			f.Name, value)
-	}
-	return f.Validate()
-}
-
-func (f *FloatFlag) String() string {
-	var hasRange bool = false
-	usage := f.Usage
-	if f.Range[0] != f.Range[1] {
-		usage += fmt.Sprintf(" {%.2f-%.2f}", f.Range[0], f.Range[1])
-
-	}
-	if f.Value != 0 || hasRange {
-		usage += fmt.Sprintf(" [%.2f]", f.Value)
-	}
-	return f.Usage
-}
-
-func (f *FloatFlag) Validate() error {
-	if f.Name == "" {
-		return fmt.Errorf("FloatFlag is missing name")
-	}
-	if f.Range[0] != f.Range[1] {
-		if f.Value < f.Range[0] {
-			return fmt.Errorf(
-				"illegal value for float flag %s: %f < %f",
-				f.Name, f.Value, f.Range[0])
-		} else if f.Value > f.Range[1] {
-			return fmt.Errorf(
-				"illegal value for integer flag %s: %f > %f",
-				f.Name, f.Value, f.Range[1])
-		}
-	}
-
-	return nil
-}
-
-func (f *FloatFlag) setEnv() {
-	if f.EnvVar != "" {
-		envVar := os.Getenv(f.EnvVar)
-		if envVar != "" {
-			if envVal, err := strconv.
-				ParseFloat(envVar, 64); err == nil {
-				f.Value = envVal
-			}
-		}
-	}
-}
-
-type BoolFlag struct {
-	// Name of the flag, for a given Name the command-line option
-	// becomes --Name.
-	Name string
-	// Char is an optional single-char alternative.
-	Char rune
-	// Initialize default value from environment variable. For boolean flags
-	// the value toggles if the environment variable is non-empty.
-	EnvVar string
-	// Required makes the flag required.
-	Required bool
-	// Usage is printed to the help screen - short summary of function.
-	Usage string
-	// Value is the default (boolean) value of the flag (defaults to false).
-	Value bool
-	// PrintDefault determines if the Stringer is printing the default value.
-	PrintDefault bool
-}
-
-func (f *BoolFlag) GetName() string {
-	return f.Name
-}
-
-func (f *BoolFlag) GetValue() interface{} {
-	return interface{}(f.Value)
-}
-
-func (f *BoolFlag) Set(value string) error {
-	lowerCase := strings.ToLower(value)
-	if lowerCase == "true" {
-		f.Value = true
-		return nil
-	} else if lowerCase == "false" {
-		f.Value = false
-		return nil
-	}
-	return fmt.Errorf("illegal value: %s", value)
-}
-
-// Prints the usage string of the flag.
-func (f *BoolFlag) String() string {
-	if f.PrintDefault {
-		return fmt.Sprintf("%s [%s]", f.Usage, f.Value)
-	}
-	return f.Usage
-}
-func (f *BoolFlag) Validate() error {
-	if f.Name == "" {
-		return fmt.Errorf("BoolFlag is missing name")
-	}
-	return nil
-}
-
-func (f *BoolFlag) setEnv() {
-	if f.EnvVar != "" {
-		envVar := os.Getenv(f.EnvVar)
-		if envVar != "" {
-			f.Value = !f.Value
-		}
-	}
-}
-
-func (f *BoolFlag) getProperties() *flagProperties {
-	return &flagProperties{
-		Name:     f.Name,
-		Char:     f.Char,
-		Required: f.Required,
-	}
 }
