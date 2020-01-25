@@ -9,6 +9,10 @@ import (
 
 const (
 	defaultWidth int = 80
+
+	columnFraction = 0.34
+
+	bufferSize = 1024
 )
 
 func getOptionalAndRequired(flags []*Flag) ([]*Flag, []*Flag) {
@@ -37,83 +41,105 @@ func getOptionalAndRequired(flags []*Flag) ([]*Flag, []*Flag) {
 	return optional, required
 }
 
-func writeFlagSection(w io.Writer, section string, flags []Flag) error {
-	_, err := w.Write([]byte(section + ":\n"))
+func (hp *HelpPrinter) writeFlagSection(section string, flags []*Flag) error {
+	hp.indent = 0
+	_, err := fmt.Fprint(hp, NewLine+section+":"+NewLine)
 	if err != nil {
 		return err
 	}
+	for _, flag := range flags {
+		char := "/-" + string(flag.Char)
+		if flag.Char == rune(0) {
+			char = ""
+		}
+		hp.indent = 2
+		metaVar := flag.MetaVar
+		if metaVar == "" {
+			if flag.Type == Bool {
+				metaVar = "true/false"
+			} else {
+				metaVar = "value"
+			}
+		}
+
+		n, err := fmt.Fprintf(hp, "--%s%s %s  ",
+			flag.Name, char, metaVar)
+		if err != nil {
+			return err
+		}
+		hp.indent = hp.columnWidth
+		if n > hp.indent {
+			fmt.Fprintln(hp)
+		}
+		fmt.Fprint(hp, flag.Usage+NewLine)
+	}
+
 	return nil
 }
 
-func writeUsage(
-	w io.Writer, width int,
+func (hp *HelpPrinter) writeUsage(
 	execStr string,
 	required, optional []*Flag,
 ) error {
-	var flagWords []string
 	var idx int
-	var indent string
-	var word string = fmt.Sprintf("Usage: %s ", execStr)
 
-	n, err := w.Write([]byte(word))
+	n, err := fmt.Fprintf(hp, "Usage: %s ", execStr)
 	if err != nil {
 		return err
 	}
 	idx += n
-	if n < width {
-		indent = fmt.Sprintf("%*s", n, " ")
+	if n < hp.width {
+		hp.indent = n
 	}
 
-	flagWords = make([]string, len(optional)+len(required))
-	for i, flag := range required {
+	for _, flag := range append(required, optional...) {
 		word := "--" + flag.Name
 		if flag.Char != rune(0) {
-			word += "/-" + string(flag.Char)
+			word = "-" + string(flag.Char)
 		}
-		if flag.Type != Bool && flag.MetaVar == "" {
-			word += " value] "
-		} else {
-			word += flag.MetaVar + " "
+		metaVar := flag.MetaVar
+		if metaVar == "" {
+			if flag.Type == Bool {
+				metaVar = "true/false"
+			} else {
+				metaVar = "value"
+			}
 		}
-		flagWords[i] = word
-	}
-	for i, flag := range optional {
-		word := "[--" + flag.Name
-		if flag.Char != rune(0) {
-			word += "/-" + string(flag.Char)
-		}
-		if flag.Type == Bool {
-			word += "] "
-		} else if flag.MetaVar == "" {
-			word += " value] "
-		} else {
-			word += fmt.Sprintf(" %s] ", flag.MetaVar)
-		}
-		flagWords[i+len(required)] = word
-	}
 
-	for i := 0; i < len(flagWords); i++ {
-		word = flagWords[i]
-		if idx+len(word) > width {
-			word = NewLine + indent + word
-			n, err = w.Write([]byte(word))
-			idx = n
+		word = fmt.Sprintf("%s %s", word, metaVar)
+		if flag.Required {
+			word += " "
 		} else {
-			n, err = w.Write([]byte(word))
-			idx += n
+			word = "[" + word + "] "
 		}
+		if hp.cursor+len(word) > hp.writeWidth {
+			word = NewLine + word
+		}
+		n, err = fmt.Fprint(hp, word)
 		if err != nil {
 			return err
 		}
 	}
-	_, err = w.Write([]byte(NewLine))
+	_, err = fmt.Fprint(hp, NewLine)
 
 	return err
 }
 
-func PrintAppHelp(app *App, out io.Writer) error {
+type HelpPrinter struct {
+	buf         *bytes.Buffer
+	ctx         *Context
+	out         io.Writer
+	width       int
+	columnWidth int
+
+	// Internal writer parameters
+	writeWidth int
+	cursor     int
+	indent     int
+}
+
+func NewHelpPrinter(ctx *Context, out io.Writer) *HelpPrinter {
 	var width int
-	helpBuf := &bytes.Buffer{}
 	if f, ok := out.(*os.File); ok {
 		ws, err := getTerminalSize(int(f.Fd()))
 		if err != nil {
@@ -124,10 +150,125 @@ func PrintAppHelp(app *App, out io.Writer) error {
 	} else {
 		width = defaultWidth
 	}
+	columnWidth := int(columnFraction * float64(width))
 
-	optFlags, reqFlags := getOptionalAndRequired(app.Flags)
-	err := writeUsage(helpBuf, width, os.Args[0], reqFlags, optFlags)
+	return &HelpPrinter{
+		ctx:         ctx,
+		buf:         &bytes.Buffer{},
+		out:         out,
+		width:       width,
+		columnWidth: columnWidth,
 
-	helpBuf.WriteTo(os.Stderr)
+		writeWidth: width,
+		indent:     0,
+	}
+}
+
+func (hp *HelpPrinter) Write(p []byte) (int, error) {
+	var err error
+	var n int
+	var N int
+	var NumIndent int
+	var pp []byte
+	var indented bool = false
+
+	for N < len(p) {
+		pp = p[N:]
+		if hp.cursor < hp.indent {
+			n, err = fmt.Fprintf(hp.buf, "%*s",
+				hp.indent-hp.cursor, "")
+			hp.cursor += n
+			NumIndent += n
+			indented = true
+			if err != nil {
+				break
+			}
+		}
+		remaining := hp.writeWidth - hp.cursor
+		if remaining >= len(pp) {
+			remaining = len(pp)
+		} else if remaining < 0 {
+			fmt.Fprintln(hp.buf)
+			hp.cursor = 0
+			continue
+		}
+		idx := bytes.Index(pp[:remaining], []byte(NewLine))
+		if idx >= 0 {
+			idx += len(NewLine)
+			n, err = hp.buf.Write(pp[:idx])
+			hp.cursor = 0
+		} else {
+			idx = bytes.LastIndex(pp[:remaining], []byte(" "))
+			if idx >= 0 {
+				idx += 1
+				n, err = hp.buf.Write(pp[:idx])
+				hp.cursor += n
+			} else {
+				if len(pp)+hp.cursor > hp.writeWidth {
+					if indented {
+						n, err = hp.buf.Write(p[N:])
+						N += n
+						indented = false
+						if err != nil {
+							break
+						}
+					}
+					fmt.Fprintln(hp.buf)
+					hp.cursor = 0
+					continue
+				}
+				n, err = hp.buf.Write(pp)
+				hp.cursor += n
+				N += n
+				break
+			}
+		}
+		indented = false
+		N += n
+		if err != nil {
+			return N + NumIndent, err
+		}
+	}
+	return N + NumIndent, err
+}
+
+func (hp *HelpPrinter) PrintHelp() error {
+	var flags []*Flag
+	var execStr string
+
+	if hp.ctx.command == nil {
+		flags = hp.ctx.app.Flags
+		execStr = os.Args[0]
+	} else {
+		for p := hp.ctx; p != nil; p = p.parent {
+			if p.command == nil {
+				flags = append(flags, p.app.Flags...)
+			} else {
+				execStr = p.command.Name + " " + execStr
+				flags = append(flags, p.command.Flags...)
+				if !p.command.InheritParentFlags {
+					break
+				}
+			}
+		}
+		execStr = os.Args[0] + " " + execStr
+	}
+
+	optFlags, reqFlags := getOptionalAndRequired(flags)
+	err := hp.writeUsage(execStr, reqFlags, optFlags)
+	if err != nil {
+		return err
+	}
+	err = hp.writeFlagSection("Required flags", reqFlags)
+	if err != nil {
+		return err
+	}
+
+	err = hp.writeFlagSection("Optional flags", optFlags)
+	if err != nil {
+		return err
+	}
+
+	hp.buf.WriteTo(hp.out)
 	return err
 }

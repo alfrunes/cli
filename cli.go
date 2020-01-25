@@ -24,22 +24,19 @@ type App struct {
 	requiredFlags map[string]*Flag
 }
 
-func (a *App) PrintHelp() {
-	PrintAppHelp(a, os.Stderr)
-	return // TODO
-}
-
-func (a *App) Run(args []string) error {
-	a.requiredFlags = make(map[string]*Flag)
-	ctx, err := a.parseArgs(args)
+func (app *App) Run(args []string) error {
+	app.requiredFlags = make(map[string]*Flag)
+	appCtx, err := NewContext(app, nil, nil)
+	if err != nil {
+		return err
+	}
+	ctx, err := app.parseArgs(args, appCtx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
 		if ctx == nil {
-			a.PrintHelp()
-		} else if ctx.command == nil {
-			ctx.app.PrintHelp()
+			appCtx.PrintHelp()
 		} else {
-			a.PrintHelp()
+			ctx.PrintHelp()
 		}
 		return err
 	}
@@ -57,13 +54,13 @@ func (a *App) Run(args []string) error {
 
 	if ctx.command == nil {
 		if ctx.app.Action == nil {
-			ctx.app.PrintHelp()
+			ctx.PrintHelp()
 			return nil
 		} else {
 			return ctx.app.Action(ctx)
 		}
 	} else if ctx.command.Action == nil {
-		ctx.command.PrintHelp()
+		ctx.PrintHelp()
 		return nil
 	}
 
@@ -72,19 +69,15 @@ func (a *App) Run(args []string) error {
 
 // parseArgs parses all passed arguments and on success returns the context
 // of the inner command scope.
-func (app *App) parseArgs(args []string) (*Context, error) {
+func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 	var lastFlag *Flag
-	ctx, err := NewContext(app, nil, nil)
-	if err != nil {
-		return nil, err
-	}
 
 	for i, arg := range args {
 		// Flag from last iteration - try to assign arg as value.
 		if lastFlag != nil {
 			set, err := ctx.assignFlag(arg, lastFlag)
 			if err != nil {
-				return nil, err
+				return ctx, err
 			}
 			lastFlag = nil
 			if set {
@@ -94,7 +87,7 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 
 		ret, err := parseArg(arg, ctx)
 		if err != nil {
-			return nil, err
+			return ctx, err
 		}
 		switch ret.(type) {
 		case *Flag:
@@ -124,7 +117,7 @@ func (app *App) parseArgs(args []string) (*Context, error) {
 	if lastFlag != nil {
 		switch lastFlag.Type {
 		case String, Int, Float:
-			return nil, fmt.Errorf(
+			return ctx, fmt.Errorf(
 				"The following flag is missing a value: %s",
 				lastFlag.Name)
 		}

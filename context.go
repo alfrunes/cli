@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -231,4 +232,9 @@ func (ctx *Context) Free() {
 		p.scopeCommands = nil
 		p.scopeFlags = nil
 	}
+}
+
+func (ctx *Context) PrintHelp() error {
+	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
+	return helpPrinter.PrintHelp()
 }
