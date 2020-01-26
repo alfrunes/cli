@@ -115,8 +115,8 @@ func NewHelpPrinter(ctx *Context, out io.Writer) *HelpPrinter {
 // Write function which makes the HelpPrinter conform with the io.Writer
 // interface. The printer attempts to insert newlines at word boundaries and
 // satisfy the margin constrains in the HelpPrinter structure.
-// NOTE: The returned length is that of the bytes written to the buffer -
-//       that includes indentation and inserted newlines.
+//     NOTE: The returned length is that of the bytes written to the buffer
+//           that includes indentation and inserted newlines.
 func (hp *HelpPrinter) Write(p []byte) (int, error) {
 	var err error
 	var n int
@@ -203,7 +203,7 @@ func (hp *HelpPrinter) initPrint() ([]*Flag, []*Flag, string) {
 
 	if hp.ctx.command == nil {
 		flags = hp.ctx.app.Flags
-		execStr = os.Args[0]
+		execStr = hp.ctx.app.Name
 	} else {
 		for p := hp.ctx; p != nil; p = p.parent {
 			if p.command == nil {
@@ -216,7 +216,7 @@ func (hp *HelpPrinter) initPrint() ([]*Flag, []*Flag, string) {
 				}
 			}
 		}
-		execStr = os.Args[0] + " " + execStr
+		execStr = hp.ctx.app.Name + " " + execStr
 	}
 
 	optFlags, reqFlags := getOptionalAndRequired(flags)
@@ -242,9 +242,9 @@ func (hp *HelpPrinter) PrintHelp() error {
 	if hp.ctx.command != nil {
 		if hp.ctx.command.Description != "" {
 			hp.LeftMargin = 0
-			fmt.Fprintln(hp, "Description:")
+			fmt.Fprintln(hp, NewLine+"Description:")
 			hp.LeftMargin = 2
-			fmt.Fprintln(hp, NewLine+hp.ctx.command.Description+NewLine)
+			fmt.Fprintln(hp, hp.ctx.command.Description+NewLine)
 		}
 		if len(hp.ctx.command.SubCommands) > 0 {
 			err = hp.writeCommandSection(hp.ctx.command.SubCommands)
@@ -264,13 +264,16 @@ func (hp *HelpPrinter) PrintHelp() error {
 		return err
 	}
 
-	err = hp.writeFlagSection("Required flags", reqFlags)
-	if err != nil {
-		return err
+	if len(reqFlags) > 0 {
+		err = hp.writeFlagSection("Required flags", reqFlags)
+		if err != nil {
+			return err
+		}
 	}
 
-	err = hp.writeFlagSection("Optional flags", optFlags)
-
+	if len(optFlags) > 0 {
+		err = hp.writeFlagSection("Optional flags", optFlags)
+	}
 	hp.buf.WriteTo(hp.out)
 	return err
 }
@@ -324,7 +327,7 @@ func (hp *HelpPrinter) writeFlagSection(section string, flags []*Flag) error {
 		if n > hp.LeftMargin {
 			fmt.Fprintln(hp)
 		}
-		fmt.Fprint(hp, flag.Usage+NewLine)
+		fmt.Fprint(hp, flag.String()+NewLine)
 	}
 
 	return nil
@@ -376,7 +379,7 @@ func (hp *HelpPrinter) writeUsage(
 	suffix := "]"
 	if hp.ctx.command != nil {
 		if len(hp.ctx.command.PositionalArguments) > 0 {
-			fmt.Fprint(hp, strings.Join(
+			fmt.Fprint(hp, " "+strings.Join(
 				hp.ctx.command.PositionalArguments, " "))
 		}
 		if len(hp.ctx.command.SubCommands) > 0 {
@@ -392,7 +395,7 @@ func (hp *HelpPrinter) writeUsage(
 		}
 	} else if len(hp.ctx.app.Commands) > 0 {
 		if hp.ctx.app.Action == nil {
-			cmdString = "}"
+			cmdString = " {"
 			suffix = "}"
 		}
 		for _, cmd := range hp.ctx.app.Commands {

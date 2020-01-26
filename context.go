@@ -259,11 +259,11 @@ func (ctx *Context) Free() {
 }
 
 func (ctx *Context) PrintHelp() error {
-	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
+	helpPrinter := NewHelpPrinter(ctx, os.Stdout)
 	return helpPrinter.PrintHelp()
 }
 
 func (ctx *Context) PrintUsage() error {
-	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
+	helpPrinter := NewHelpPrinter(ctx, os.Stdout)
 	return helpPrinter.PrintUsage()
 }

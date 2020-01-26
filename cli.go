@@ -11,20 +11,28 @@ import (
 type internalError error
 
 type App struct {
-	Name        string
-	Author      string
-	Version     [3]uint
-	Usage       string
+	// Name of the application - will also appear as the usage executable
+	// in the help text.
+	Name string
+	// Description should give a short description of the application.
 	Description string
 
-	Action   func(ctx *Context) error
-	Flags    []*Flag
+	// Action defines the default action (main application) of the program.
+	Action func(ctx *Context) error
+	// Flags are the flags accessible at the root scope.
+	Flags []*Flag
+	// Commands are commands accessible at the root scope.
 	Commands []*Command
 
-	DisableHelpOption  bool
+	// DisableHelpOption disables the default <-h/--help> flag.
+	DisableHelpOption bool
+	// DisableHelpCommand disable the default <help> command.
 	DisableHelpCommand bool
 }
 
+// Run starts parsing the command-line arguments passed as args, and executes
+// the action corresponding with the sequence of arguments. Any errors during
+// parsing triggers the usage to be printed to the terminal.
 func (app *App) Run(args []string) error {
 	appCtx, err := NewContext(app, nil, nil)
 	if err != nil {
@@ -50,12 +58,15 @@ func (app *App) Run(args []string) error {
 	if len(ctx.requiredFlags) > 0 {
 		missingFlags := "[ "
 		for k, _ := range ctx.requiredFlags {
-			missingFlags += k + " "
+			missingFlags += "--" + k + " "
 		}
 		missingFlags += "]"
-		return fmt.Errorf(
-			"The following flags are required but missing: %s",
+		err := fmt.Errorf(
+			"Error: missing argument(s): %s",
 			missingFlags)
+		fmt.Fprintln(os.Stderr, err.Error())
+		ctx.PrintUsage()
+		return err
 	}
 
 	if ctx.command == nil {

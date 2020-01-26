@@ -168,19 +168,19 @@ func (f *Flag) Set(value string) error {
 
 func (f *Flag) String() string {
 	usage := f.Usage
-	if f.Value != nil {
-		usage += " [%s]"
-	}
+	// if f.Value != f.Type.Nil() {
+	// 	usage += fmt.Sprintf(" [%v]", f.Value)
+	// }
 	choices, ok := f.Type.CastSlice(f.Choices)
 	if ok && len(choices) > 0 {
 		switch f.Type {
 		case Int, Float:
 			switch len(choices) {
 			case 1:
-				usage += fmt.Sprintf("{0-%v}", choices[0])
+				usage += fmt.Sprintf(" {0-%v}", choices[0])
 			case 2:
 				usage += fmt.Sprintf(
-					"{%v-%v}",
+					" {%v-%v}",
 					choices[0],
 					choices[1])
 			default:

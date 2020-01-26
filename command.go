@@ -1,5 +1,7 @@
 package cli
 
+import "fmt"
+
 // Command describes git-style commands such as `git <log|diff|commit>` etc.
 // Each Command has it's own scope of flags and possible SubCommands.
 type Command struct {
@@ -26,10 +28,14 @@ type Command struct {
 	SubCommands []*Command
 }
 
-func (cmd *Command) PrintHelp() {
-	return // TODO
-}
-
 func (cmd *Command) Validate() error {
-	return nil // TODO
+	if cmd.Name == "" {
+		return internalError(fmt.Errorf("commands require a name"))
+	}
+	if cmd.Action == nil && len(cmd.SubCommands) == 0 {
+		return internalError(fmt.Errorf(
+			"found an orphan command (%s) without an action",
+			cmd.Name))
+	}
+	return nil
 }
