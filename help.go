@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 const (
@@ -14,6 +15,55 @@ const (
 	maxColumnWidth = 35
 
 	bufferSize = 1024
+)
+
+var (
+	HelpOption = &Flag{
+		Name:  "help",
+		Char:  'h',
+		Type:  Bool,
+		Usage: "Display this help message",
+	}
+	HelpCommand = &Command{
+		Name:                "help",
+		Usage:               "Show help for command given as argument",
+		PositionalArguments: []string{"<command>"},
+		Action: func(ctx *Context) error {
+			parent := ctx.parent
+			args := ctx.GetPositionals()
+			if len(args) == 0 {
+				fmt.Fprintln(os.Stderr,
+					"No help subject given, showing default")
+			} else {
+				var subjectCommand *Command
+				var commands *[]*Command
+				if parent.command == nil {
+					commands = &parent.app.Commands
+				} else {
+					commands = &parent.command.SubCommands
+				}
+				for _, cmd := range *commands {
+					if cmd.Name == args[0] {
+						subjectCommand = cmd
+						break
+					}
+				}
+				if subjectCommand == nil {
+					fmt.Fprintf(os.Stderr,
+						"Help subject '%s' unknown%s",
+						args[0], NewLine)
+				} else {
+					subjectContext := &Context{
+						app:     ctx.app,
+						command: subjectCommand,
+						parent:  parent,
+					}
+					ctx = subjectContext
+				}
+			}
+			return ctx.PrintHelp()
+		},
+	}
 )
 
 type HelpPrinter struct {
@@ -325,6 +375,10 @@ func (hp *HelpPrinter) writeUsage(
 	cmdString := " ["
 	suffix := "]"
 	if hp.ctx.command != nil {
+		if len(hp.ctx.command.PositionalArguments) > 0 {
+			fmt.Fprint(hp, strings.Join(
+				hp.ctx.command.PositionalArguments, " "))
+		}
 		if len(hp.ctx.command.SubCommands) > 0 {
 			if hp.ctx.command.Action == nil {
 				cmdString = " {"

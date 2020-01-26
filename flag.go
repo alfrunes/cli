@@ -240,7 +240,6 @@ func (f *Flag) validate() error {
 	// Validate choices' type
 	if f.Choices != nil {
 		_, ok := f.Type.CastSlice(f.Choices)
-		fmt.Println(ok)
 		if !ok {
 			return internalError(fmt.Errorf(
 				"illegal type for choices selection (%v) for "+

@@ -14,19 +14,21 @@ type Context struct {
 	parent *Context
 
 	positionalArgs []string
-	parsedFlags    map[string]*Flag
 	scopeFlags     map[string]*Flag
+	parsedFlags    map[string]*Flag
+	requiredFlags  map[string]*Flag
 	scopeCommands  map[string]*Command
 }
 
 func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
-	var flags []*Flag
+	var flags *[]*Flag
 	ctx := &Context{
 		app:     app,
 		command: cmd,
 		parent:  parent,
 
 		parsedFlags:   make(map[string]*Flag),
+		requiredFlags: make(map[string]*Flag),
 		scopeFlags:    make(map[string]*Flag),
 		scopeCommands: make(map[string]*Command),
 	}
@@ -38,7 +40,11 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 
 	if cmd == nil {
 		// Root scope
-		flags = ctx.app.Flags
+		flags = &ctx.app.Flags
+		if !ctx.app.DisableHelpCommand && len(ctx.app.Commands) > 0 {
+			ctx.app.Commands = append(ctx.app.Commands, HelpCommand)
+			ctx.scopeCommands[HelpCommand.Name] = HelpCommand
+		}
 		for _, cmd := range ctx.app.Commands {
 			if err := cmd.Validate(); err != nil {
 				return nil, err
@@ -47,7 +53,15 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		}
 	} else {
 		// Command scope
-		flags = cmd.Flags
+
+		if !ctx.app.DisableHelpCommand &&
+			// Add default help command
+			len(ctx.command.SubCommands) > 0 {
+			ctx.command.SubCommands = append(
+				ctx.command.SubCommands, HelpCommand)
+		}
+
+		flags = &cmd.Flags
 		if cmd.InheritParentFlags {
 			for k, v := range parent.scopeFlags {
 				ctx.scopeFlags[k] = v
@@ -60,8 +74,18 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 			ctx.scopeCommands[subCmd.Name] = subCmd
 		}
 	}
+	if !ctx.app.DisableHelpOption && !(ctx.command != nil &&
+		ctx.command.Name == "help") {
+		if flags != nil {
+			*flags = append(
+				*flags, HelpOption)
+		} else {
+			*flags = []*Flag{HelpOption}
+		}
+		ctx.scopeFlags[HelpOption.Name] = HelpOption
+	}
 
-	for _, flag := range flags {
+	for _, flag := range *flags {
 		if err := flag.Validate(); err != nil {
 			return nil, err
 		}
@@ -70,7 +94,7 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		}
 		ctx.scopeFlags[flag.Name] = flag
 		if flag.Required {
-			app.requiredFlags[flag.Name] = flag
+			ctx.requiredFlags[flag.Name] = flag
 		}
 		if flag.Char != rune(0) {
 			ctx.scopeFlags[string(flag.Char)] = flag
@@ -225,10 +249,10 @@ func (ctx *Context) assignFlag(arg string, flag *Flag) (bool, error) {
 // is called this context can't be used.
 func (ctx *Context) Free() {
 	var p *Context
-	p.app.requiredFlags = nil
 	for p = ctx; p != nil; p = p.parent {
 		p.parsedFlags = nil
 		p.positionalArgs = nil
+		p.requiredFlags = nil
 		p.scopeCommands = nil
 		p.scopeFlags = nil
 	}
@@ -237,4 +261,9 @@ func (ctx *Context) Free() {
 func (ctx *Context) PrintHelp() error {
 	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
 	return helpPrinter.PrintHelp()
+}
+
+func (ctx *Context) PrintUsage() error {
+	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
+	return helpPrinter.PrintUsage()
 }

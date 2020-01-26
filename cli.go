@@ -21,29 +21,35 @@ type App struct {
 	Flags    []*Flag
 	Commands []*Command
 
-	requiredFlags map[string]*Flag
+	DisableHelpOption  bool
+	DisableHelpCommand bool
 }
 
 func (app *App) Run(args []string) error {
-	app.requiredFlags = make(map[string]*Flag)
 	appCtx, err := NewContext(app, nil, nil)
 	if err != nil {
 		return err
 	}
 	ctx, err := app.parseArgs(args, appCtx)
+	if ctx == nil {
+		ctx = appCtx
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
 		if ctx == nil {
-			appCtx.PrintHelp()
+			appCtx.PrintUsage()
 		} else {
-			ctx.PrintHelp()
+			ctx.PrintUsage()
 		}
 		return err
 	}
+	if hjalp, _ := ctx.Bool("help"); hjalp {
+		return ctx.PrintHelp()
+	}
 
-	if len(ctx.app.requiredFlags) > 0 {
+	if len(ctx.requiredFlags) > 0 {
 		missingFlags := "[ "
-		for k, _ := range ctx.app.requiredFlags {
+		for k, _ := range ctx.requiredFlags {
 			missingFlags += k + " "
 		}
 		missingFlags += "]"
@@ -157,7 +163,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 		case 1:
 			ret = flagAddr
 		}
-		delete(ctx.app.requiredFlags, flagAddr.Name)
+		delete(ctx.requiredFlags, flagAddr.Name)
 		return ret, nil
 
 	} else if strings.HasPrefix(arg, "-") {
@@ -180,7 +186,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 			} else {
 				nonBools = append(nonBools, char)
 			}
-			delete(ctx.app.requiredFlags, flag.Name)
+			delete(ctx.requiredFlags, flag.Name)
 			if _, ok := ctx.parsedFlags[flag.Name]; ok {
 				return nil, fmt.Errorf(
 					"flag provided more than once: " +
@@ -202,7 +208,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 					"flag provided more than once: " +
 						flag.Name)
 			}
-			delete(ctx.app.requiredFlags, flag.Name)
+			delete(ctx.requiredFlags, flag.Name)
 			if flag.Type == Bool {
 				flag.Value = true
 				ctx.parsedFlags[flag.Name] = flag

@@ -19,6 +19,9 @@ type Command struct {
 	// InheritParentFlags toggles whether the flags of the parent command (or
 	// app) is accessible at the command's scope.
 	InheritParentFlags bool
+	// PositionalArguments notifies the help printer about positional
+	// arguments.
+	PositionalArguments []string
 	// SubCommands are commands that are accessible under this scope.
 	SubCommands []*Command
 }
