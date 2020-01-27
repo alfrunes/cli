@@ -204,6 +204,16 @@ func (ctx *Context) Float(name string) (float64, bool) {
 	return ret, isSet
 }
 
+func (ctx *Context) Set(flag, value string) error {
+	var err error
+	if flag, ok := ctx.scopeFlags[flag]; ok {
+		err = flag.Set(value)
+	} else {
+		err = fmt.Errorf("flag not defined")
+	}
+	return err
+}
+
 func (ctx *Context) assignFlag(arg string, flag *Flag) (bool, error) {
 	// Ignore this check for bool and string flags
 	// -- boolean flags default to true
@@ -235,11 +245,9 @@ func (ctx *Context) assignFlag(arg string, flag *Flag) (bool, error) {
 	}
 	if err := flag.Set(arg); err != nil {
 		if flag.Type == Bool {
-			flag.Set("true")
-			return false, nil
-		} else {
-			return false, err
+			err = nil
 		}
+		return false, err
 	}
 	ctx.parsedFlags[flag.Name] = flag
 	return true, nil

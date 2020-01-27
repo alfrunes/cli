@@ -111,6 +111,7 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 			lastFlag = ret.(*Flag)
 			if lastFlag.Type == Bool {
 				lastFlag.Value = true
+				ctx.parsedFlags[lastFlag.Name] = lastFlag
 			}
 
 		case *Command:

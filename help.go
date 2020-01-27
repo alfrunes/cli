@@ -34,6 +34,7 @@ var (
 			if len(args) == 0 {
 				fmt.Fprintln(os.Stderr,
 					"No help subject given, showing default")
+				return ctx.parent.PrintHelp()
 			} else {
 				var subjectCommand *Command
 				var commands *[]*Command
@@ -77,6 +78,7 @@ type HelpPrinter struct {
 	RightMargin int
 	cursor      int
 	LeftMargin  int
+	sep         string
 }
 
 // NewHelpPrinter creates a help printer initialized with the context ctx.
@@ -109,6 +111,7 @@ func NewHelpPrinter(ctx *Context, out io.Writer) *HelpPrinter {
 
 		LeftMargin:  0,
 		RightMargin: width,
+		sep:         " ",
 	}
 }
 
@@ -161,9 +164,9 @@ func (hp *HelpPrinter) Write(p []byte) (int, error) {
 			hp.cursor = 0
 		} else {
 			// Need to split last word
-			idx = bytes.LastIndex(pp[:lineSpace], []byte(" "))
+			idx = bytes.LastIndex(pp[:lineSpace], []byte(hp.sep))
 			if idx < 0 {
-				idx = bytes.Index(pp, []byte(" "))
+				idx = bytes.Index(pp, []byte(hp.sep))
 				if idx < 0 {
 					idx = len(pp)
 				}
@@ -184,7 +187,7 @@ func (hp *HelpPrinter) Write(p []byte) (int, error) {
 					continue
 				}
 			} else {
-				idx += 1
+				idx++
 				n, err = hp.buf.Write(pp[:idx])
 			}
 			hp.cursor += n
@@ -244,7 +247,7 @@ func (hp *HelpPrinter) PrintHelp() error {
 			hp.LeftMargin = 0
 			fmt.Fprintln(hp, NewLine+"Description:")
 			hp.LeftMargin = 2
-			fmt.Fprintln(hp, hp.ctx.Command.Description+NewLine)
+			fmt.Fprintln(hp, hp.ctx.Command.Description)
 		}
 		if len(hp.ctx.Command.SubCommands) > 0 {
 			err = hp.writeCommandSection(hp.ctx.Command.SubCommands)
@@ -407,7 +410,9 @@ func (hp *HelpPrinter) writeUsage(
 	if len(cmdString) <= 2 {
 		cmdString = ""
 	}
+	hp.sep = ","
 	_, err = fmt.Fprintln(hp, cmdString)
+	hp.sep = " "
 
 	return err
 }
