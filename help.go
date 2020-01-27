@@ -37,10 +37,10 @@ var (
 			} else {
 				var subjectCommand *Command
 				var commands *[]*Command
-				if parent.command == nil {
-					commands = &parent.app.Commands
+				if parent.Command == nil {
+					commands = &parent.App.Commands
 				} else {
-					commands = &parent.command.SubCommands
+					commands = &parent.Command.SubCommands
 				}
 				for _, cmd := range *commands {
 					if cmd.Name == args[0] {
@@ -54,8 +54,8 @@ var (
 						args[0], NewLine)
 				} else {
 					subjectContext := &Context{
-						app:     ctx.app,
-						command: subjectCommand,
+						App:     ctx.App,
+						Command: subjectCommand,
 						parent:  parent,
 					}
 					ctx = subjectContext
@@ -201,22 +201,22 @@ func (hp *HelpPrinter) initPrint() ([]*Flag, []*Flag, string) {
 	var flags []*Flag
 	var execStr string
 
-	if hp.ctx.command == nil {
-		flags = hp.ctx.app.Flags
-		execStr = hp.ctx.app.Name
+	if hp.ctx.Command == nil {
+		flags = hp.ctx.App.Flags
+		execStr = hp.ctx.App.Name
 	} else {
 		for p := hp.ctx; p != nil; p = p.parent {
-			if p.command == nil {
-				flags = append(flags, p.app.Flags...)
+			if p.Command == nil {
+				flags = append(flags, p.App.Flags...)
 			} else {
-				execStr = p.command.Name + " " + execStr
-				flags = append(flags, p.command.Flags...)
-				if !p.command.InheritParentFlags {
+				execStr = p.Command.Name + " " + execStr
+				flags = append(flags, p.Command.Flags...)
+				if !p.Command.InheritParentFlags {
 					break
 				}
 			}
 		}
-		execStr = hp.ctx.app.Name + " " + execStr
+		execStr = hp.ctx.App.Name + " " + execStr
 	}
 
 	optFlags, reqFlags := getOptionalAndRequired(flags)
@@ -239,25 +239,25 @@ func (hp *HelpPrinter) PrintHelp() error {
 	if err != nil {
 		return err
 	}
-	if hp.ctx.command != nil {
-		if hp.ctx.command.Description != "" {
+	if hp.ctx.Command != nil {
+		if hp.ctx.Command.Description != "" {
 			hp.LeftMargin = 0
 			fmt.Fprintln(hp, NewLine+"Description:")
 			hp.LeftMargin = 2
-			fmt.Fprintln(hp, hp.ctx.command.Description+NewLine)
+			fmt.Fprintln(hp, hp.ctx.Command.Description+NewLine)
 		}
-		if len(hp.ctx.command.SubCommands) > 0 {
-			err = hp.writeCommandSection(hp.ctx.command.SubCommands)
+		if len(hp.ctx.Command.SubCommands) > 0 {
+			err = hp.writeCommandSection(hp.ctx.Command.SubCommands)
 		}
 	} else {
-		if hp.ctx.app.Description != "" {
+		if hp.ctx.App.Description != "" {
 			hp.LeftMargin = 0
 			fmt.Fprintln(hp, NewLine+"Description:")
 			hp.LeftMargin = 2
-			fmt.Fprintln(hp, hp.ctx.app.Description)
+			fmt.Fprintln(hp, hp.ctx.App.Description)
 		}
-		if len(hp.ctx.app.Commands) > 0 {
-			err = hp.writeCommandSection(hp.ctx.app.Commands)
+		if len(hp.ctx.App.Commands) > 0 {
+			err = hp.writeCommandSection(hp.ctx.App.Commands)
 		}
 	}
 	if err != nil {
@@ -377,28 +377,28 @@ func (hp *HelpPrinter) writeUsage(
 	// and square brackets otherwise.
 	cmdString := " ["
 	suffix := "]"
-	if hp.ctx.command != nil {
-		if len(hp.ctx.command.PositionalArguments) > 0 {
+	if hp.ctx.Command != nil {
+		if len(hp.ctx.Command.PositionalArguments) > 0 {
 			fmt.Fprint(hp, " "+strings.Join(
-				hp.ctx.command.PositionalArguments, " "))
+				hp.ctx.Command.PositionalArguments, " "))
 		}
-		if len(hp.ctx.command.SubCommands) > 0 {
-			if hp.ctx.command.Action == nil {
+		if len(hp.ctx.Command.SubCommands) > 0 {
+			if hp.ctx.Command.Action == nil {
 				cmdString = " {"
 				suffix = "}"
 			}
-			for _, cmd := range hp.ctx.command.SubCommands {
+			for _, cmd := range hp.ctx.Command.SubCommands {
 				cmdString += cmd.Name + ","
 			}
 			// Remove trailing comma and replace it with suffix
 			cmdString = cmdString[:len(cmdString)-1] + suffix
 		}
-	} else if len(hp.ctx.app.Commands) > 0 {
-		if hp.ctx.app.Action == nil {
+	} else if len(hp.ctx.App.Commands) > 0 {
+		if hp.ctx.App.Action == nil {
 			cmdString = " {"
 			suffix = "}"
 		}
-		for _, cmd := range hp.ctx.app.Commands {
+		for _, cmd := range hp.ctx.App.Commands {
 			cmdString += cmd.Name + ","
 		}
 		// Remove trailing comma and replace it with suffix

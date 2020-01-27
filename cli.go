@@ -69,19 +69,19 @@ func (app *App) Run(args []string) error {
 		return err
 	}
 
-	if ctx.command == nil {
-		if ctx.app.Action == nil {
+	if ctx.Command == nil {
+		if ctx.App.Action == nil {
 			ctx.PrintHelp()
 			return nil
 		} else {
-			return ctx.app.Action(ctx)
+			return ctx.App.Action(ctx)
 		}
-	} else if ctx.command.Action == nil {
+	} else if ctx.Command.Action == nil {
 		ctx.PrintHelp()
 		return nil
 	}
 
-	return ctx.command.Action(ctx)
+	return ctx.Command.Action(ctx)
 }
 
 // parseArgs parses all passed arguments and on success returns the context

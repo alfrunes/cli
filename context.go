@@ -7,8 +7,8 @@ import (
 )
 
 type Context struct {
-	app     *App
-	command *Command
+	App     *App
+	Command *Command
 
 	// parent is the context scope of the parent command
 	parent *Context
@@ -23,8 +23,8 @@ type Context struct {
 func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 	var flags *[]*Flag
 	ctx := &Context{
-		app:     app,
-		command: cmd,
+		App:     app,
+		Command: cmd,
 		parent:  parent,
 
 		parsedFlags:   make(map[string]*Flag),
@@ -40,12 +40,12 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 
 	if cmd == nil {
 		// Root scope
-		flags = &ctx.app.Flags
-		if !ctx.app.DisableHelpCommand && len(ctx.app.Commands) > 0 {
-			ctx.app.Commands = append(ctx.app.Commands, HelpCommand)
+		flags = &ctx.App.Flags
+		if !ctx.App.DisableHelpCommand && len(ctx.App.Commands) > 0 {
+			ctx.App.Commands = append(ctx.App.Commands, HelpCommand)
 			ctx.scopeCommands[HelpCommand.Name] = HelpCommand
 		}
-		for _, cmd := range ctx.app.Commands {
+		for _, cmd := range ctx.App.Commands {
 			if err := cmd.Validate(); err != nil {
 				return nil, err
 			}
@@ -54,11 +54,11 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 	} else {
 		// Command scope
 
-		if !ctx.app.DisableHelpCommand &&
+		if !ctx.App.DisableHelpCommand &&
 			// Add default help command
-			len(ctx.command.SubCommands) > 0 {
-			ctx.command.SubCommands = append(
-				ctx.command.SubCommands, HelpCommand)
+			len(ctx.Command.SubCommands) > 0 {
+			ctx.Command.SubCommands = append(
+				ctx.Command.SubCommands, HelpCommand)
 		}
 
 		flags = &cmd.Flags
@@ -74,8 +74,8 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 			ctx.scopeCommands[subCmd.Name] = subCmd
 		}
 	}
-	if !ctx.app.DisableHelpOption && !(ctx.command != nil &&
-		ctx.command.Name == "help") {
+	if !ctx.App.DisableHelpOption && !(ctx.Command != nil &&
+		ctx.Command.Name == "help") {
 		if flags != nil {
 			*flags = append(
 				*flags, HelpOption)
