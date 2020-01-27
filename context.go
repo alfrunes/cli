@@ -75,10 +75,10 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		}
 	}
 	if !ctx.App.DisableHelpOption && !(ctx.Command != nil &&
-		ctx.Command.Name == "help") {
+		(ctx.Command.InheritParentFlags ||
+			ctx.Command.Name == "help")) {
 		if flags != nil {
-			*flags = append(
-				*flags, HelpOption)
+			*flags = append(*flags, HelpOption)
 		} else {
 			*flags = []*Flag{HelpOption}
 		}

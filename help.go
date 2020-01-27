@@ -168,10 +168,10 @@ func (hp *HelpPrinter) Write(p []byte) (int, error) {
 			if idx < 0 {
 				idx = bytes.Index(pp, []byte(hp.sep))
 				if idx < 0 {
-					idx = len(pp)
+					idx = len(pp) - 1
 				}
-				if lineSpace >= idx {
-					n, err = hp.buf.Write(pp)
+				if lineSpace > idx {
+					n, err = hp.buf.Write(pp[:idx+1])
 				} else if idx > hp.RightMargin-hp.LeftMargin {
 					// Last resort, next word doesn't fit so
 					// flush the remainder of the line.
@@ -390,8 +390,13 @@ func (hp *HelpPrinter) writeUsage(
 				cmdString = " {"
 				suffix = "}"
 			}
-			for _, cmd := range hp.ctx.Command.SubCommands {
-				cmdString += cmd.Name + ","
+			if len(hp.ctx.Command.SubCommands) >= 10 {
+				cmdString += fmt.Sprintf("command%s%soptions%s",
+					suffix, cmdString, suffix)
+			} else {
+				for _, cmd := range hp.ctx.Command.SubCommands {
+					cmdString += cmd.Name + ","
+				}
 			}
 			// Remove trailing comma and replace it with suffix
 			cmdString = cmdString[:len(cmdString)-1] + suffix
@@ -401,8 +406,13 @@ func (hp *HelpPrinter) writeUsage(
 			cmdString = " {"
 			suffix = "}"
 		}
-		for _, cmd := range hp.ctx.App.Commands {
-			cmdString += cmd.Name + ","
+		if len(hp.ctx.App.Commands) >= 10 {
+			cmdString += fmt.Sprintf("command%s%soptions%s",
+				suffix, cmdString, suffix)
+		} else {
+			for _, cmd := range hp.ctx.App.Commands {
+				cmdString += cmd.Name + ","
+			}
 		}
 		// Remove trailing comma and replace it with suffix
 		cmdString = cmdString[:len(cmdString)-1] + suffix
