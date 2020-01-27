@@ -110,7 +110,7 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 		case *Flag:
 			lastFlag = ret.(*Flag)
 			if lastFlag.Type == Bool {
-				lastFlag.Value = true
+				lastFlag.value = true
 				ctx.parsedFlags[lastFlag.Name] = lastFlag
 			}
 
@@ -194,7 +194,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 					"unrecognized option: %s", char)
 			}
 			if flag.Type == Bool {
-				flag.Value = true
+				flag.value = true
 			} else {
 				nonBools = append(nonBools, char)
 			}
@@ -222,7 +222,7 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 			}
 			delete(ctx.requiredFlags, flag.Name)
 			if flag.Type == Bool {
-				flag.Value = true
+				flag.value = true
 				ctx.parsedFlags[flag.Name] = flag
 				return flag, nil
 			}

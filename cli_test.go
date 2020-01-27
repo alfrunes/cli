@@ -40,7 +40,7 @@ func ExampleApp() {
 				// String is default type if none is specified.
 				Type:     String,
 				MetaVar:  "STR",
-				Value:    "default value",
+				Default:  "default value",
 				Choices:  []string{"must", "include", "default value"},
 				EnvVar:   "INIT_FROM_ENVIRONMENT_VAR_IF_DEFINED",
 				Required: false, // false is default

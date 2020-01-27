@@ -123,8 +123,9 @@ type Flag struct {
 	MetaVar string
 	// The type of the flag's value.
 	Type FlagType
-	// Value holds the default (string) value of the flag (defaults to "").
-	Value interface{}
+	// Default holds the default value of the flag.
+	Default interface{}
+	value   interface{}
 	// Choices restricts the Values this flag can take to this set.
 	Choices interface{}
 	// Initialize default value from an environment variable the variable
@@ -142,21 +143,21 @@ func (f *Flag) Set(value string) error {
 	case Bool:
 		lowerCase := strings.ToLower(value)
 		if lowerCase == "true" {
-			f.Value = true
+			f.value = true
 		} else if lowerCase == "false" {
-			f.Value = false
+			f.value = false
 		} else {
 			// actual error handled below
 			err = fmt.Errorf("")
 		}
 
 	case Float:
-		f.Value, err = strconv.ParseFloat(value, 64)
+		f.value, err = strconv.ParseFloat(value, 64)
 	case Int:
-		f.Value, err = strconv.Atoi(value)
+		f.value, err = strconv.Atoi(value)
 
 	case String:
-		f.Value = value
+		f.value = value
 	}
 	if err != nil {
 		return fmt.Errorf("invalid value for flag %s (type: %s): %s",
@@ -168,9 +169,9 @@ func (f *Flag) Set(value string) error {
 
 func (f *Flag) String() string {
 	usage := f.Usage
-	// if f.Value != f.Type.Nil() {
-	// 	usage += fmt.Sprintf(" [%v]", f.Value)
-	// }
+	if f.Default != nil {
+		usage += fmt.Sprintf(" [%v]", f.Default)
+	}
 	choices, ok := f.Type.CastSlice(f.Choices)
 	if ok && len(choices) > 0 {
 		switch f.Type {
@@ -185,26 +186,29 @@ func (f *Flag) String() string {
 					choices[1])
 			default:
 				usage += fmt.Sprintf(
-					" {%s}", joinSlice(choices, ", "))
+					" {%s}", joinSlice(choices, "|"))
 			}
 		case String:
 			usage += fmt.Sprintf(
-				" {%s}", joinSlice(choices, ", "))
+				" {%s}", joinSlice(choices, ","))
 
 		}
 	}
 	return usage
 }
 
-func (f *Flag) setEnv() {
+func (f *Flag) init() {
+	if f.Default != nil {
+		f.value = f.Default
+	}
 	if f.EnvVar != "" {
 		envVar := os.Getenv(f.EnvVar)
 		if envVar != "" {
-			defaultValue := f.Value
+			defaultValue := f.value
 			err := f.Set(envVar)
 			if err != nil {
 				// Fall back to default value
-				f.Value = defaultValue
+				f.value = defaultValue
 			}
 		}
 	}
@@ -227,15 +231,15 @@ func (f *Flag) validate() error {
 			"flag of type %s is missing name",
 			f.Type.String()))
 	}
-	if f.Value == nil {
+	if f.value == nil {
 		// Fill in blank value
-		f.Value = f.Type.Nil()
+		f.value = f.Type.Nil()
 	}
 	// Check that type is correct
-	if !f.Type.Equal(f.Value) {
+	if !f.Type.Equal(f.value) {
 		return internalError(fmt.Errorf(
 			"flag %s of type %s with illegal value %v (type: %s)",
-			f.Name, f.Type, f.Value, getFlagType(f.Value)))
+			f.Name, f.Type, f.value, getFlagType(f.value)))
 	}
 	// Validate choices' type
 	if f.Choices != nil {
@@ -265,12 +269,12 @@ func (f *Flag) validateChoices() error {
 			choices = append([]interface{}{0.0}, choices[0])
 			fallthrough
 		case 2:
-			if f.Value.(float64) < choices[0].(float64) ||
-				f.Value.(float64) > choices[1].(float64) {
+			if f.value.(float64) < choices[0].(float64) ||
+				f.value.(float64) > choices[1].(float64) {
 				return fmt.Errorf(
 					"illegal value for flag %s: "+
 						"%g not in range [%g, %g]",
-					f.Name, f.Value.(float64),
+					f.Name, f.value.(float64),
 					choices[0].(float64),
 					choices[1].(float64))
 			}
@@ -282,12 +286,12 @@ func (f *Flag) validateChoices() error {
 			choices = append([]interface{}{0}, choices[0])
 			fallthrough
 		case 2:
-			if f.Value.(int) < choices[0].(int) ||
-				f.Value.(int) > choices[1].(int) {
+			if f.value.(int) < choices[0].(int) ||
+				f.value.(int) > choices[1].(int) {
 				return fmt.Errorf(
 					"illegal value for flag %s: "+
 						"%d not in range [%d, %d]",
-					f.Name, f.Value,
+					f.Name, f.value,
 					choices[0].(int),
 					choices[1].(int))
 			}
@@ -296,11 +300,11 @@ func (f *Flag) validateChoices() error {
 	case Bool:
 		return nil
 	}
-	if !elemInSlice(f.Value, choices) {
+	if !elemInSlice(f.value, choices) {
 		return fmt.Errorf(
 			"illegal value for flag %s: "+
 				"%v not in {%s}", f.Name,
-			f.Value, joinSlice(choices, ", "))
+			f.value, joinSlice(choices, ", "))
 	}
 	return nil
 }

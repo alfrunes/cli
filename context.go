@@ -86,6 +86,7 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 	}
 
 	for _, flag := range *flags {
+		flag.init()
 		if err := flag.Validate(); err != nil {
 			return nil, err
 		}
@@ -99,7 +100,6 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		if flag.Char != rune(0) {
 			ctx.scopeFlags[string(flag.Char)] = flag
 		}
-		flag.setEnv()
 	}
 
 	return ctx, nil
@@ -124,7 +124,7 @@ func (ctx *Context) String(name string) (string, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.Value.(string); ok {
+			if value, ok := flag.value.(string); ok {
 				ret = value
 			} else {
 				break
@@ -146,7 +146,7 @@ func (ctx *Context) Int(name string) (int, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.Value.(int); ok {
+			if value, ok := flag.value.(int); ok {
 				ret = value
 			} else {
 				break
@@ -168,7 +168,7 @@ func (ctx *Context) Bool(name string) (bool, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.Value.(bool); ok {
+			if value, ok := flag.value.(bool); ok {
 				ret = value
 			} else {
 				break
@@ -190,7 +190,7 @@ func (ctx *Context) Float(name string) (float64, bool) {
 
 	for c := ctx; c != nil; c = c.parent {
 		if flag, ok := c.scopeFlags[name]; ok {
-			if value, ok := flag.Value.(float64); ok {
+			if value, ok := flag.value.(float64); ok {
 				ret = value
 			} else {
 				break
