@@ -208,6 +208,7 @@ func (ctx *Context) Set(flag, value string) error {
 	var err error
 	if flag, ok := ctx.scopeFlags[flag]; ok {
 		err = flag.Set(value)
+		ctx.parsedFlags[flag.Name] = flag
 	} else {
 		err = fmt.Errorf("flag not defined")
 	}
