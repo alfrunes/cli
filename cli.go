@@ -1,3 +1,5 @@
+// cli is an easy-to-use and fairly lightweight commandline parser inspired by
+// python argparse and github.com/urfave/cli.
 package cli
 
 import (
@@ -87,17 +89,19 @@ func (app *App) Run(args []string) error {
 // parseArgs parses all passed arguments and on success returns the context
 // of the inner command scope.
 func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
-	var lastFlag *Flag
+	var flag *Flag
+	var err error
 
 	for i, arg := range args {
 		// Flag from last iteration - try to assign arg as value.
-		if lastFlag != nil {
-			set, err := ctx.assignFlag(arg, lastFlag)
-			if err != nil {
-				return ctx, err
+		if flag != nil {
+			if err = flag.Set(arg); err != nil && flag.Type != Bool {
+				return ctx, fmt.Errorf(
+					"Error parsing flag %s: %s",
+					args[i-1], err.Error())
 			}
-			lastFlag = nil
-			if set {
+			flag = nil
+			if err == nil {
 				continue
 			}
 		}
@@ -108,10 +112,10 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 		}
 		switch ret.(type) {
 		case *Flag:
-			lastFlag = ret.(*Flag)
-			if lastFlag.Type == Bool {
-				lastFlag.value = true
-				ctx.parsedFlags[lastFlag.Name] = lastFlag
+			flag = ret.(*Flag)
+			if flag.Type == Bool {
+				flag.value = true
+				ctx.parsedFlags[flag.Name] = flag
 			}
 
 		case *Command:
@@ -132,13 +136,10 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 		}
 	}
 
-	if lastFlag != nil {
-		switch lastFlag.Type {
-		case String, Int, Float:
-			return ctx, fmt.Errorf(
-				"The following flag is missing a value: %s",
-				lastFlag.Name)
-		}
+	if flag != nil && flag.Type != Bool {
+		return ctx, fmt.Errorf(
+			"The following flag is missing a (%s) value: %s",
+			flag.Type, args[len(args)-1])
 	}
 
 	return ctx, nil
@@ -147,20 +148,11 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 func parseArg(arg string, ctx *Context) (interface{}, error) {
 	var ret interface{}
 
-	if strings.HasPrefix(arg, "--") {
-		if arg == "--" {
-			return arg, nil
-		}
-		flagName := strings.TrimPrefix(arg, "--")
-		flagKeyVal := strings.SplitN(flagName, "=", 2)
+	if arg[:2] == "--" {
+		flagKeyVal := strings.SplitN(arg[2:], "=", 2)
 		flagAddr, ok := ctx.scopeFlags[flagKeyVal[0]]
 		if !ok {
 			return nil, fmt.Errorf("unrecognized flag: %s", arg)
-		}
-		if _, ok := ctx.parsedFlags[flagKeyVal[0]]; ok {
-			return nil, fmt.Errorf(
-				"flag provided more than once: %s",
-				flagKeyVal[0])
 		}
 		switch len(flagKeyVal) {
 		// Flag has the form --flag=value
@@ -175,61 +167,54 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 		case 1:
 			ret = flagAddr
 		}
+
 		delete(ctx.requiredFlags, flagAddr.Name)
+		if _, ok := ctx.parsedFlags[flagKeyVal[0]]; ok {
+			return nil, fmt.
+				Errorf("flag provided more than once: %s",
+					flagKeyVal[0])
+		}
 		return ret, nil
 
-	} else if strings.HasPrefix(arg, "-") {
+	} else if arg[0] == '-' {
 		// Handle short flag (possibly compound)
 		if arg == "-" {
 			// Treat single hyphen as positional argument
 			return arg, nil
 		}
-		charFlags := strings.TrimPrefix(arg, "-")
-		rawFlags := strings.Split(charFlags, "")
-		nonBools := []string{}
-		for _, char := range rawFlags[:len(rawFlags)-1] {
-			flag, ok := ctx.scopeFlags[char]
+		var flag *Flag
+		var ok bool
+		rawFlags := strings.Split(arg[1:], "")
+		lastIdx := len(rawFlags) - 1
+		for i, char := range rawFlags {
+			flag, ok = ctx.scopeFlags[char]
 			if !ok {
 				return nil, fmt.Errorf(
 					"unrecognized option: %s", char)
 			}
-			if flag.Type == Bool {
-				flag.value = true
-			} else {
-				nonBools = append(nonBools, char)
-			}
-			delete(ctx.requiredFlags, flag.Name)
-			if _, ok := ctx.parsedFlags[flag.Name]; ok {
+			if _, ok = ctx.parsedFlags[flag.Name]; ok {
 				return nil, fmt.Errorf(
 					"flag provided more than once: " +
 						flag.Name)
 			}
 			ctx.parsedFlags[flag.Name] = flag
-		}
-		if len(nonBools) > 0 {
-			return nil, fmt.Errorf(
-				"non-boolean flag(s) %v cannot be used in a compound "+
-					"expression '%s'",
-				nonBools, arg)
-		}
-		// Last flag of a compound expression can be whatever
-		char := rawFlags[len(rawFlags)-1]
-		if flag, ok := ctx.scopeFlags[char]; ok {
-			if _, ok := ctx.parsedFlags[flag.Name]; ok {
-				return nil, fmt.Errorf(
-					"flag provided more than once: " +
-						flag.Name)
-			}
 			delete(ctx.requiredFlags, flag.Name)
-			if flag.Type == Bool {
-				flag.value = true
-				ctx.parsedFlags[flag.Name] = flag
-				return flag, nil
+			if i == lastIdx {
+				break
 			}
-			return flag, nil
+
+			if flag.Type != Bool {
+				if i == lastIdx {
+					break
+				}
+				return nil, fmt.Errorf(
+					"flag %s (type: %s) cannot be used "+
+						"in a compound expression '%s'",
+					flag.Char, flag.Type, arg)
+			}
+			flag.value = true
 		}
-		return nil, fmt.Errorf("unrecognized option: %s",
-			rawFlags[len(rawFlags)-1])
+		return flag, nil
 	} else if cmd, ok := ctx.scopeCommands[arg]; ok {
 		// Check if arg is a command
 		return cmd, nil

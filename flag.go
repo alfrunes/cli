@@ -14,9 +14,8 @@ const (
 	Bool
 	Int
 	Float
-
-	Unknown FlagType = 0xFF
 )
+const unknown FlagType = 0xFF
 
 func (ft FlagType) Equal(value interface{}) bool {
 	actualType := getFlagType(value)
@@ -109,7 +108,7 @@ func getFlagType(value interface{}) FlagType {
 	case string:
 		return String
 	}
-	return Unknown
+	return unknown
 
 }
 
@@ -155,7 +154,6 @@ func (f *Flag) Set(value string) error {
 		f.value, err = strconv.ParseFloat(value, 64)
 	case Int:
 		f.value, err = strconv.Atoi(value)
-
 	case String:
 		f.value = value
 	}

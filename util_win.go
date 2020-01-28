@@ -4,6 +4,7 @@ package cli
 
 import "golang.org/x/sys/windows"
 
+// NewLine is OS specific.
 const NewLine = "\r\n"
 
 func getTerminalSize(fd int) (widthHeight [2]uint16, err error) {

@@ -17,56 +17,7 @@ const (
 	bufferSize = 1024
 )
 
-var (
-	HelpOption = &Flag{
-		Name:  "help",
-		Char:  'h',
-		Type:  Bool,
-		Usage: "Display this help message",
-	}
-	HelpCommand = &Command{
-		Name:                "help",
-		Usage:               "Show help for command given as argument",
-		PositionalArguments: []string{"<command>"},
-		Action: func(ctx *Context) error {
-			parent := ctx.parent
-			args := ctx.GetPositionals()
-			if len(args) == 0 {
-				fmt.Fprintln(os.Stderr,
-					"No help subject given, showing default")
-				return ctx.parent.PrintHelp()
-			} else {
-				var subjectCommand *Command
-				var commands *[]*Command
-				if parent.Command == nil {
-					commands = &parent.App.Commands
-				} else {
-					commands = &parent.Command.SubCommands
-				}
-				for _, cmd := range *commands {
-					if cmd.Name == args[0] {
-						subjectCommand = cmd
-						break
-					}
-				}
-				if subjectCommand == nil {
-					fmt.Fprintf(os.Stderr,
-						"Help subject '%s' unknown%s",
-						args[0], NewLine)
-				} else {
-					subjectContext := &Context{
-						App:     ctx.App,
-						Command: subjectCommand,
-						parent:  parent,
-					}
-					ctx = subjectContext
-				}
-			}
-			return ctx.PrintHelp()
-		},
-	}
-)
-
+// HelpPrinter provides an interface for printing the help message.
 type HelpPrinter struct {
 	buf         *bytes.Buffer
 	ctx         *Context
@@ -74,10 +25,10 @@ type HelpPrinter struct {
 	width       int
 	columnWidth int
 
-	// Internal writer parameters
+	// RightMargin and LeftMargin specifies the margins for the Write func.
 	RightMargin int
-	cursor      int
 	LeftMargin  int
+	cursor      int
 	sep         string
 }
 
@@ -226,6 +177,8 @@ func (hp *HelpPrinter) initPrint() ([]*Flag, []*Flag, string) {
 	return optFlags, reqFlags, execStr
 }
 
+// PrintUsage prints the usage string hinting all available and required flags
+// and commands without the usage strings.
 func (hp *HelpPrinter) PrintUsage() error {
 	optFlags, reqFlags, execStr := hp.initPrint()
 	err := hp.writeUsage(execStr, reqFlags, optFlags)
@@ -236,6 +189,9 @@ func (hp *HelpPrinter) PrintUsage() error {
 	return err
 }
 
+// PrintHelp prints a verbose formatted help message with usage strings and
+// description. If the flag has a default value, the value is appended to the
+// usage string in square brackets.
 func (hp *HelpPrinter) PrintHelp() error {
 	optFlags, reqFlags, execStr := hp.initPrint()
 	err := hp.writeUsage(execStr, reqFlags, optFlags)
@@ -451,4 +407,56 @@ func getOptionalAndRequired(flags []*Flag) ([]*Flag, []*Flag) {
 	}
 
 	return optional, required
+}
+
+var (
+	HelpOption = &Flag{
+		Name:  "help",
+		Char:  'h',
+		Type:  Bool,
+		Usage: "Display this help message",
+	}
+	HelpCommand = &Command{
+		Name:                "help",
+		Usage:               "Show help for command given as argument",
+		PositionalArguments: []string{"<command>"},
+		Action:              helpCmd,
+	}
+)
+
+func helpCmd(ctx *Context) error {
+	parent := ctx.parent
+	args := ctx.GetPositionals()
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr,
+			"No help subject given, showing default")
+		return parent.PrintHelp()
+	} else {
+		var subjectCommand *Command
+		var commands []*Command
+		if parent.Command == nil {
+			commands = parent.App.Commands
+		} else {
+			commands = parent.Command.SubCommands
+		}
+		for _, cmd := range commands {
+			if cmd.Name == args[0] {
+				subjectCommand = cmd
+				break
+			}
+		}
+		if subjectCommand == nil {
+			fmt.Fprintf(os.Stderr,
+				"Help subject '%s' unknown%s",
+				args[0], NewLine)
+		} else {
+			subjectContext := &Context{
+				App:     ctx.App,
+				Command: subjectCommand,
+				parent:  parent,
+			}
+			ctx = subjectContext
+		}
+	}
+	return ctx.PrintHelp()
 }

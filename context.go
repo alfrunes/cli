@@ -3,9 +3,14 @@ package cli
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 
+// Context provides an interface to the parsed command and arguments. After
+// parsing the command can be identified with the Context.Command.Name and
+// the flag values are retrieved by the Context.<FlagType>(<Flag.Name>), where
+// FlagType is one of the predefined FlagType constants and Flag.Name is the
+// string value of flag; this set of functions also return a boolean describing
+// whether the flag was parsed or explicitly set using the Context.Set function.
 type Context struct {
 	App     *App
 	Command *Command
@@ -20,6 +25,11 @@ type Context struct {
 	scopeCommands  map[string]*Command
 }
 
+// NewContext creates a new context. The app argument is required and can't
+// be nil, where as the parent context and command are optionally non-nil. The
+// context is initialized from configurations specified in the app. Furthermore,
+// the presence of a command argument determines the scope of the context (which
+// flags will be reachable from the context).
 func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 	var flags *[]*Flag
 	ctx := &Context{
@@ -34,8 +44,8 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 	}
 
 	if app == nil {
-		return nil, fmt.Errorf(
-			"NewContext invalid argument: missing app")
+		return nil, internalError(
+			fmt.Errorf("NewContext invalid argument: missing app"))
 	}
 
 	if cmd == nil {
@@ -53,7 +63,6 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 		}
 	} else {
 		// Command scope
-
 		if !ctx.App.DisableHelpCommand &&
 			// Add default help command
 			len(ctx.Command.SubCommands) > 0 {
@@ -79,30 +88,12 @@ func NewContext(app *App, parent *Context, cmd *Command) (*Context, error) {
 			ctx.Command.Name == "help")) {
 		if flags != nil {
 			*flags = append(*flags, HelpOption)
-		} else {
-			*flags = []*Flag{HelpOption}
 		}
 		ctx.scopeFlags[HelpOption.Name] = HelpOption
 	}
 
-	for _, flag := range *flags {
-		flag.init()
-		if err := flag.Validate(); err != nil {
-			return nil, err
-		}
-		if flag == nil {
-			return nil, fmt.Errorf("NewContext nil flag detected!")
-		}
-		ctx.scopeFlags[flag.Name] = flag
-		if flag.Required {
-			ctx.requiredFlags[flag.Name] = flag
-		}
-		if flag.Char != rune(0) {
-			ctx.scopeFlags[string(flag.Char)] = flag
-		}
-	}
-
-	return ctx, nil
+	err := ctx.appendFlags(*flags)
+	return ctx, err
 }
 
 // GetParent returns the parent context
@@ -204,6 +195,7 @@ func (ctx *Context) Float(name string) (float64, bool) {
 	return ret, isSet
 }
 
+// Set flag to value as parsed from the command-line.
 func (ctx *Context) Set(flag, value string) error {
 	var err error
 	if flag, ok := ctx.scopeFlags[flag]; ok {
@@ -215,47 +207,9 @@ func (ctx *Context) Set(flag, value string) error {
 	return err
 }
 
-func (ctx *Context) assignFlag(arg string, flag *Flag) (bool, error) {
-	// Ignore this check for bool and string flags
-	// -- boolean flags default to true
-	// -- string flags treat the next argument as a regardless string
-	if flag.Type != Bool && flag.Type != String {
-		// Check that the value is not a flag or command
-		var argAsFlag string
-		if len(arg) == 2 {
-			argAsFlag = strings.TrimPrefix(arg, "-")
-		} else {
-			argAsFlag = strings.TrimPrefix(arg, "--")
-		}
-		_, isFlag := ctx.scopeFlags[argAsFlag]
-		if isFlag {
-			return false, fmt.Errorf(
-				"error parsing arguments: "+
-					"expected value of type %s, "+
-					"found flag: %s",
-				flag.Type, arg)
-		}
-		_, isCommand := ctx.scopeCommands[arg]
-		if isCommand {
-			return false, fmt.Errorf(
-				"error parsing arguments: "+
-					"expected value of type %s, "+
-					"found command: %s",
-				flag.Type, arg)
-		}
-	}
-	if err := flag.Set(arg); err != nil {
-		if flag.Type == Bool {
-			err = nil
-		}
-		return false, err
-	}
-	ctx.parsedFlags[flag.Name] = flag
-	return true, nil
-}
-
-// Free releases all internal lookup maps for the garbage collector after free
-// is called this context can't be used.
+// Free releases all internal lookup maps for garbage collection, after Free
+// is called this context will always return empty value and false on flag
+// queries.
 func (ctx *Context) Free() {
 	var p *Context
 	for p = ctx; p != nil; p = p.parent {
@@ -267,12 +221,34 @@ func (ctx *Context) Free() {
 	}
 }
 
+// PrintHelp prints the help prompt of the context's scope (command/app).
 func (ctx *Context) PrintHelp() error {
-	helpPrinter := NewHelpPrinter(ctx, os.Stdout)
+	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
 	return helpPrinter.PrintHelp()
 }
 
+// PrintUsage prints the usage string given the context's scope (command/app).
 func (ctx *Context) PrintUsage() error {
-	helpPrinter := NewHelpPrinter(ctx, os.Stdout)
+	helpPrinter := NewHelpPrinter(ctx, os.Stderr)
 	return helpPrinter.PrintUsage()
+}
+
+func (ctx *Context) appendFlags(flags []*Flag) error {
+	for _, flag := range flags {
+		flag.init()
+		if err := flag.Validate(); err != nil {
+			return err
+		}
+		if flag == nil {
+			return fmt.Errorf("NewContext: nil flag detected!")
+		}
+		ctx.scopeFlags[flag.Name] = flag
+		if flag.Required {
+			ctx.requiredFlags[flag.Name] = flag
+		}
+		if flag.Char != rune(0) {
+			ctx.scopeFlags[string(flag.Char)] = flag
+		}
+	}
+	return nil
 }
