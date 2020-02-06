@@ -93,6 +93,9 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 	var err error
 
 	for i, arg := range args {
+		if arg == "" {
+			continue
+		}
 		// Flag from last iteration - try to assign arg as value.
 		if flag != nil {
 			if err = flag.Set(arg); err != nil && flag.Type != Bool {
@@ -115,7 +118,6 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 			flag = ret.(*Flag)
 			if flag.Type == Bool {
 				flag.value = true
-				ctx.parsedFlags[flag.Name] = flag
 			}
 
 		case *Command:
@@ -148,24 +150,11 @@ func (app *App) parseArgs(args []string, ctx *Context) (*Context, error) {
 func parseArg(arg string, ctx *Context) (interface{}, error) {
 	var ret interface{}
 
-	if arg[:2] == "--" {
+	if len(arg) > 2 && arg[:2] == "--" {
 		flagKeyVal := strings.SplitN(arg[2:], "=", 2)
 		flagAddr, ok := ctx.scopeFlags[flagKeyVal[0]]
 		if !ok {
 			return nil, fmt.Errorf("unrecognized flag: %s", arg)
-		}
-		switch len(flagKeyVal) {
-		// Flag has the form --flag=value
-		case 2:
-			if err := flagAddr.Set(flagKeyVal[1]); err != nil {
-				return nil, err
-			}
-			ctx.parsedFlags[flagKeyVal[0]] = flagAddr
-			ret = nil
-
-		// Flag has the form --flag [value]
-		case 1:
-			ret = flagAddr
 		}
 
 		delete(ctx.requiredFlags, flagAddr.Name)
@@ -174,11 +163,26 @@ func parseArg(arg string, ctx *Context) (interface{}, error) {
 				Errorf("flag provided more than once: %s",
 					flagKeyVal[0])
 		}
+		ctx.parsedFlags[flagKeyVal[0]] = flagAddr
+
+		switch len(flagKeyVal) {
+		// Flag has the form --flag=value
+		case 2:
+			if err := flagAddr.Set(flagKeyVal[1]); err != nil {
+				return nil, err
+			}
+			ret = nil
+
+		// Flag has the form --flag [value]
+		case 1:
+			ret = flagAddr
+		}
+
 		return ret, nil
 
 	} else if arg[0] == '-' {
 		// Handle short flag (possibly compound)
-		if arg == "-" {
+		if arg == "-" || arg == "--" {
 			// Treat single hyphen as positional argument
 			return arg, nil
 		}
